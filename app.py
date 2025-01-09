@@ -20,15 +20,15 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google_credentials.json"
 
 # Constantes
 TEMP_DIR = "temp"
-FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-DEFAULT_FONT_SIZE = 50
+FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"  # Ajusta la ruta si es necesario
+DEFAULT_FONT_SIZE = 50  # Reducimos el tamaño de fuente por defecto
 VIDEO_FPS = 24
 VIDEO_CODEC = 'libx264'
 AUDIO_CODEC = 'aac'
 VIDEO_PRESET = 'ultrafast'
 VIDEO_THREADS = 4
-IMAGE_SIZE_TEXT = (1080, 1920)
-VIDEO_SIZE = (1080, 1920)
+IMAGE_SIZE_TEXT = (1080, 1920) #Tamaño de imagen para texto
+VIDEO_SIZE = (1080, 1920)  # Tamaño del video vertical
 
 # Configuración de voces
 VOCES_DISPONIBLES = {
@@ -54,6 +54,7 @@ VOCES_DISPONIBLES = {
     'es-ES-Wavenet-F': texttospeech.SsmlVoiceGender.FEMALE,
 }
 
+
 def create_text_image(text, size=IMAGE_SIZE_TEXT, font_size=DEFAULT_FONT_SIZE,
                       text_color="white", background_video=None):
     """Creates a text image with the specified text and styles."""
@@ -70,7 +71,7 @@ def create_text_image(text, size=IMAGE_SIZE_TEXT, font_size=DEFAULT_FONT_SIZE,
         font = ImageFont.load_default()
     
     # Calculamos la altura de línea en función del tamaño de la fuente.
-    line_height = font_size * 1.2
+    line_height = font_size * 1.2 #ajusto a 1.2 por que el video es mas alto
 
     words = text.split()
     lines = []
@@ -80,7 +81,7 @@ def create_text_image(text, size=IMAGE_SIZE_TEXT, font_size=DEFAULT_FONT_SIZE,
         current_line.append(word)
         test_line = ' '.join(current_line)
         left, top, right, bottom = draw.textbbox((0, 0), test_line, font=font)
-        if right > size[0] - 120:
+        if right > size[0] - 120:  #ajusto el tamaño del rectangulo del texto
             current_line.pop()
             lines.append(' '.join(current_line))
             current_line = [word]
@@ -95,36 +96,6 @@ def create_text_image(text, size=IMAGE_SIZE_TEXT, font_size=DEFAULT_FONT_SIZE,
         draw.text((x, y), line, font=font, fill=text_color)
         y += line_height
     return np.array(img)
-
-def resize_and_center_video(video_clip, target_size):
-    """Resizes and centers a video while maintaining its aspect ratio."""
-    
-    video_ratio = video_clip.size[0] / video_clip.size[1]
-    target_ratio = target_size[0] / target_size[1]
-
-    if video_ratio > target_ratio:
-        # Video es más ancho, ajustar altura
-        new_height = target_size[1]
-        new_width = int(new_height * video_ratio)
-        
-    else:
-        # Video es más alto, ajustar ancho
-        new_width = target_size[0]
-        new_height = int(new_width / video_ratio)
-
-    resized_clip = video_clip.resize((new_width, new_height))
-
-    # Centrar el video
-    x_offset = (target_size[0] - new_width) // 2
-    y_offset = (target_size[1] - new_height) // 2
-    
-    # Creamos un clip negro de fondo del tamaño del video
-    background_clip = ColorClip(size=target_size, color=(0,0,0)).set_duration(resized_clip.duration)
-
-    # Pegamos el video redimensionado en el centro
-    final_clip = CompositeVideoClip([background_clip,resized_clip.set_position((x_offset, y_offset))])
-   
-    return final_clip
 
     
 def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
@@ -155,9 +126,8 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
         if background_video:
             try:
               bg_clip_original = VideoFileClip(background_video)
-              bg_clip_resized = resize_and_center_video(bg_clip_original, VIDEO_SIZE)
+              bg_clip_resized = bg_clip_original.resize(VIDEO_SIZE)
               bg_clip_resized = bg_clip_resized.set_opacity(0.5)
-
 
             except Exception as e:
               logging.error(f"Error al cargar o procesar el video de fondo: {e}")
