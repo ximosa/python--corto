@@ -131,8 +131,8 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
     archivos_temp = []
     clips_audio = []
     clips_finales = []
-    text_color = "white" # Color de texto por defecto
-    bg_color = "black" # Color de fondo por defecto
+    text_color = "white"  # Color de texto por defecto
+    bg_color = "black"  # Color de fondo por defecto
     
     try:
         logging.info("Iniciando proceso de creación de video...")
@@ -155,12 +155,17 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
         # Cargar y procesar video de fondo (si existe) fuera del bucle
         if background_video:
             try:
+                logging.info(f"Path del video temporal: {background_video}")
                 bg_clip_original = VideoFileClip(background_video)
-                bg_clip_resized = resize_and_center_video(bg_clip_original, VIDEO_SIZE)
-                # Eliminamos el set_opacity aquí
+                logging.info(f"Tamaño del video original: {bg_clip_original.size}")
+                logging.info(f"Duración del video original: {bg_clip_original.duration}")
                 
-                # Calculamos duración total
-                total_duration = sum(audio_clip.duration for audio_clip in clips_audio)
+                bg_clip_resized = resize_and_center_video(bg_clip_original, VIDEO_SIZE)
+                logging.info(f"Tamaño del video después del resize: {bg_clip_resized.size}")
+                logging.info(f"Duración del video redimensionado: {bg_clip_resized.duration}")
+                
+                total_duration = sum(audio_clip.duration for audio_clip in clips_audio) if clips_audio else 0
+                logging.info(f"Duración total requerida: {total_duration}")
                 
                 # Creamos el loop si es necesario
                 if bg_clip_resized.duration < total_duration:
@@ -173,38 +178,39 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
                 bg_clip_looped = None
 
         else:
-             bg_clip_looped = None        
+            bg_clip_looped = None
+        
         for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
             
             synthesis_input = texttospeech.SynthesisInput(text=segmento)
             voice = texttospeech.VoiceSelectionParams(
-                language_code="es-ES",
-                name=voz,
-                ssml_gender=VOCES_DISPONIBLES[voz]
-            )
+                    language_code="es-ES",
+                    name=voz,
+                    ssml_gender=VOCES_DISPONIBLES[voz]
+                )
             audio_config = texttospeech.AudioConfig(
-                audio_encoding=texttospeech.AudioEncoding.MP3
-            )
-            
+                    audio_encoding=texttospeech.AudioEncoding.MP3
+                )
+                
             retry_count = 0
             max_retries = 3
-            
+                
             while retry_count <= max_retries:
-              try:
-                response = client.synthesize_speech(
-                    input=synthesis_input,
-                    voice=voice,
-                    audio_config=audio_config
-                )
-                break
-              except Exception as e:
-                  logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
-                  if "429" in str(e):
-                    retry_count +=1
-                    time.sleep(2**retry_count)
-                  else:
-                    raise
+                try:
+                    response = client.synthesize_speech(
+                        input=synthesis_input,
+                        voice=voice,
+                        audio_config=audio_config
+                    )
+                    break
+                except Exception as e:
+                    logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
+                    if "429" in str(e):
+                        retry_count +=1
+                        time.sleep(2**retry_count)
+                    else:
+                        raise
             
             if retry_count > max_retries:
                 raise Exception("Maximos intentos de reintento alcanzado")
@@ -213,41 +219,42 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
             archivos_temp.append(temp_filename)
             with open(temp_filename, "wb") as out:
                 out.write(response.audio_content)
-            
+                
             audio_clip = AudioFileClip(temp_filename)
             clips_audio.append(audio_clip)
             duracion = audio_clip.duration
             
             if bg_clip_looped:
+                logging.info(f"Tiempo acumulado: {tiempo_acumulado}")
+                logging.info(f"Duración del segmento actual: {duracion}")
                                   # Creamos una capa negra semitransparente
-                                  black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.4).set_duration(duracion)
+                black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.4).set_duration(duracion)
                 
-                                  # Extraemos el segmento correcto del video de fondo
-                                  bg_segment = bg_clip_looped.subclip(tiempo_acumulado, tiempo_acumulado + duracion)
+                # Extraemos el segmento correcto del video de fondo
+                bg_segment = bg_clip_looped.subclip(tiempo_acumulado, tiempo_acumulado + duracion)
                 
-                                  # Creamos el clip de texto
-                                  text_img = create_text_image(segmento, font_size=font_size, text_color=text_color, background_video=background_video)
-                                  txt_clip = ImageClip(text_img).set_duration(duracion).set_position('center')
+                # Creamos el clip de texto
+                text_img = create_text_image(segmento, font_size=font_size, text_color=text_color, background_video=background_video)
+                txt_clip = ImageClip(text_img).set_duration(duracion).set_position('center')
                 
-                                  # Componemos el video final
-                                  video_segment = CompositeVideoClip([bg_segment, black_clip, txt_clip])
-                                  video_segment = video_segment.set_audio(audio_clip)            
+                # Componemos el video final
+                video_segment = CompositeVideoClip([bg_segment, black_clip, txt_clip])
+                video_segment = video_segment.set_audio(audio_clip)
             else:
                 # Si no hay video de fondo, creamos un clip negro como antes
-              black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.5).set_duration(duracion)
+                black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.5).set_duration(duracion)
 
-              text_img = create_text_image(segmento, font_size=font_size,
-                                    text_color=text_color,
-                                    background_video=background_video
-                                    )
-              txt_clip = (ImageClip(text_img)
-                          .set_duration(duracion)
-                          .set_position('center'))
-              
-              video_segment = CompositeVideoClip([black_clip, txt_clip])
-              video_segment = video_segment.set_audio(audio_clip)
+                text_img = create_text_image(segmento, font_size=font_size,
+                                        text_color=text_color,
+                                        background_video=background_video
+                                        )
+                txt_clip = (ImageClip(text_img)
+                            .set_duration(duracion)
+                            .set_position('center'))
+                
+                video_segment = CompositeVideoClip([black_clip, txt_clip])
+                video_segment = video_segment.set_audio(audio_clip)
 
-            
             clips_finales.append(video_segment)
             
             tiempo_acumulado += duracion
@@ -267,10 +274,16 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
         video_final.close()
         
         for clip in clips_audio:
-            clip.close()
+            try:
+                clip.close()
+            except:
+                pass
         
         for clip in clips_finales:
-            clip.close()
+            try:
+                clip.close()
+            except:
+                pass
             
         for temp_file in archivos_temp:
             try:
@@ -279,8 +292,12 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
                     os.remove(temp_file)
             except:
                 pass
+                
         if 'bg_clip_original' in locals() and bg_clip_original:
-          bg_clip_original.close()
+          try:
+            bg_clip_original.close()
+          except:
+            pass
         
         return True, "Video generado exitosamente"
         
@@ -291,21 +308,19 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
                 clip.close()
             except:
                 pass
-                
         for clip in clips_finales:
             try:
                 clip.close()
             except:
                 pass
-                
         for temp_file in archivos_temp:
             try:
                 if os.path.exists(temp_file):
-                    os.close(os.open(temp_file, os.O_RDONLY))
-                    os.remove(temp_file)
+                  os.close(os.open(temp_file, os.O_RDONLY))
+                  os.remove(temp_file)
             except:
-                pass
-        
+              pass
+            
         return False, str(e)
 
 
@@ -354,11 +369,11 @@ def main():
                     
                   st.session_state.video_path = nombre_salida_completo
                   if video_path:
-                    os.remove(video_path)
+                      os.remove(video_path)
                 else:
                   st.error(f"Error al generar video: {message}")
                   if video_path:
-                    os.remove(video_path)
+                      os.remove(video_path)
 
 
 if __name__ == "__main__":
