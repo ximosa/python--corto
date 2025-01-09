@@ -195,11 +195,17 @@ def create_simple_video(
                 bg_clip_original = VideoFileClip(background_video)
                 bg_clip_resized = bg_clip_original.resize(VIDEO_SIZE)
                 bg_clip_resized = bg_clip_resized.set_opacity(0.5)
+                
+                # Calculamos la duración total sumando todos los segmentos y la duración del clip de suscripción
+                duracion_total = sum(len(segmento.strip().split()) * 0.3 for segmento in segmentos_texto) + SUBSCRIPTION_DURATION
+                
+                # Hacemos que el video de fondo se repita durante toda la duración
+                bg_clip_loop = bg_clip_resized.loop(duration=duracion_total)
             except Exception as e:
                 logging.error(f"Error al cargar o procesar el video de fondo: {e}")
-                bg_clip_resized = None
+                bg_clip_loop = None
         else:
-            bg_clip_resized = None
+            bg_clip_loop = None
 
         for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
@@ -249,9 +255,10 @@ def create_simple_video(
                 logging.error(f"Error al cargar el clip de audio: {e}")
                 continue  # Skip to the next segment if audio loading fails
 
-            if bg_clip_resized:
-                # Usar el video de fondo redimensionado
-                bg_clip_segment = bg_clip_resized.loop(duration=duracion)
+            if bg_clip_loop:
+                # Usamos el mismo bg_clip_loop pero cortado para cada segmento
+                start_time = tiempo_acumulado
+                bg_clip_segment = bg_clip_loop.subclip(start_time, start_time + duracion)
 
                 # Creamos una capa negra semitransparente
                 black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(
