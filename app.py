@@ -89,7 +89,7 @@ def create_text_image(
         return None
 
     # Creamos una imagen con canal alfa (RGBA)
-    img = Image.new("RGBA", size, bg_color)  # Fondo completamente transparente
+    img = Image.new("RGBA", size, (0, 0, 0, 0))  # Fondo completamente transparente
     draw = ImageDraw.Draw(img)
 
     try:
@@ -139,7 +139,7 @@ def create_subscription_image(logo_url, size=IMAGE_SIZE_SUBSCRIPTION, font_size=
         response = requests.get(logo_url)
         response.raise_for_status()
         logo_img = Image.open(BytesIO(response.content)).convert("RGBA")
-        logo_img = logo_img.resize(LOGO_SIZE)
+        logo_img = logo_img.resize(LOGO_SIZE)  # Quitamos ANTIALIAS
         logo_position = (20, 20)
         img.paste(logo_img, logo_position, logo_img)
     except Exception as e:
@@ -172,7 +172,7 @@ def create_simple_video(
     archivos_temp = []
     clips_audio = []
     clips_finales = []
-    
+
     try:
         logging.info("Iniciando proceso de creación de video...")
         frases = [f.strip() + "." for f in texto.split(".") if f.strip()]
@@ -189,57 +189,58 @@ def create_simple_video(
                 segmentos_texto.append(segmento_actual.strip())
                 segmento_actual = frase
         segmentos_texto.append(segmento_actual.strip())
-
         if background_video:
-            try:
-                bg_clip_original = VideoFileClip(background_video)
+                try:
+                    bg_clip_original = VideoFileClip(background_video)
                 
-                # Ajustamos el tamaño al formato vertical de Shorts
-                aspect_ratio = VIDEO_SIZE[0] / VIDEO_SIZE[1]
-                original_aspect = bg_clip_original.size[0] / bg_clip_original.size[1]
+                    # Ajustamos el tamaño al formato vertical de Shorts
+                    aspect_ratio = VIDEO_SIZE[0] / VIDEO_SIZE[1]
+                    original_aspect = bg_clip_original.size[0] / bg_clip_original.size[1]
                 
-                if original_aspect > aspect_ratio:
-                    new_height = VIDEO_SIZE[1]
-                    new_width = int(new_height * original_aspect)
-                    x_center = (new_width - VIDEO_SIZE[0]) // 2
-                    bg_clip_base = (bg_clip_original
-                                  .resize(height=new_height)
-                                  .crop(x1=x_center, y1=0, 
-                                       x2=x_center + VIDEO_SIZE[0], 
-                                       y2=VIDEO_SIZE[1]))
-                else:
-                    new_width = VIDEO_SIZE[0]
-                    new_height = int(new_width / original_aspect)
-                    y_center = (new_height - VIDEO_SIZE[1]) // 2
-                    bg_clip_base = (bg_clip_original
-                                  .resize(width=new_width)
-                                  .crop(x1=0, y1=y_center,
-                                       x2=VIDEO_SIZE[0],
-                                       y2=y_center + VIDEO_SIZE[1]))
-                
-                
-                
-                bg_clip_loop = bg_clip_base.loop(duration=100)
-                
-            except Exception as e:
-                logging.error(f"Error al cargar o procesar el video de fondo: {e}")
-                bg_clip_loop = None
-        elif background_image:
-            try:
-                bg_img = Image.open(background_image).convert("RGBA")
-                bg_img_resized = bg_img.resize(VIDEO_SIZE, resample=ANTIALIAS())
-                bg_clip_base = ImageClip(np.array(bg_img_resized)).set_duration(100)
-                bg_clip_loop = bg_clip_base.loop(duration=100)
+                    if original_aspect > aspect_ratio:
+                        new_height = VIDEO_SIZE[1]
+                        new_width = int(new_height * original_aspect)
+                        x_center = (new_width - VIDEO_SIZE[0]) // 2
+                        bg_clip_base = (bg_clip_original
+                                      .resize(height=new_height)
+                                      .crop(x1=x_center, y1=0, 
+                                         x2=x_center + VIDEO_SIZE[0], 
+                                         y2=VIDEO_SIZE[1]))
+                    else:
+                        new_width = VIDEO_SIZE[0]
+                        new_height = int(new_width / original_aspect)
+                        y_center = (new_height - VIDEO_SIZE[1]) // 2
+                        bg_clip_base = (bg_clip_original
+                                      .resize(width=new_width)
+                                      .crop(x1=0, y1=y_center,
+                                         x2=VIDEO_SIZE[0],
+                                         y2=y_center + VIDEO_SIZE[1]))
 
-
-            except Exception as e:
-                logging.error(f"Error al cargar o procesar la imagen de fondo: {e}")
-                bg_clip_loop = None
-        else:
-           bg_clip_loop = None
-
-
-        for i, segmento in enumerate(segmentos_texto):
+                    # Creamos clips individuales para cada segmento
+                    for i, segmento in enumerate(segmentos_texto):
+                        audio_clip = clips_audio[i]
+                        duracion = audio_clip.duration
+                    
+                        # Calculamos cuántas veces necesitamos repetir el video base
+                        num_loops = int(np.ceil(duracion / bg_clip_base.duration))
+                        bg_clip_segment = bg_clip_base.loop(n_times=num_loops).subclip(0, duracion)
+                        bg_clip_segment = bg_clip_segment.set_opacity(0.5)
+                    
+                        # Creamos una capa negra semitransparente
+                        black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.5).set_duration(duracion)
+                    
+                        text_img = create_text_image(segmento, font_size=font_size, text_color=text_color)
+                        txt_clip = ImageClip(text_img).set_duration(duracion).set_position("center")
+                    
+                        video_segment = CompositeVideoClip([bg_clip_segment, black_clip, txt_clip])
+                        video_segment = video_segment.set_audio(audio_clip)
+                    
+                        clips_finales.append(video_segment)
+                except Exception as e:
+                    logging.error(f"Error al cargar o procesar el video de fondo: {e}")
+                    bg_clip_base = None
+            else:
+            bg_clip_base = None        for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
 
             synthesis_input = texttospeech.SynthesisInput(text=segmento)
@@ -372,32 +373,33 @@ def create_simple_video(
                     os.remove(temp_file)
             except:
                 pass
+
+        if bg_clip_resized:
+            bg_clip_original.close()
+
         return True, "Video generado exitosamente"
 
     except Exception as e:
         logging.error(f"Error: {str(e)}")
-        return False, str(e)
-    finally:
-      
         for clip in clips_audio:
-          try:
-             clip.close()
-          except:
-            pass
-            
+            try:
+                clip.close()
+            except:
+                pass
+
         for clip in clips_finales:
-          try:
-             clip.close()
-          except:
-            pass
-      
+            try:
+                clip.close()
+            except:
+                pass
+
         for temp_file in archivos_temp:
             try:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
             except:
                 pass
-
+        return False, str(e)
 
 def main():
     st.title("Creador de Videos Automático")
