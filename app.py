@@ -151,96 +151,126 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
             segmentos_texto.append(segmento_actual.strip())
             segmento_actual = frase
         segmentos_texto.append(segmento_actual.strip())
-        
-        # Cargar y procesar video de fondo (si existe) fuera del bucle
-        if background_video:
-            try:
-                st.write(f"Path del video temporal: {video_path}")
-                bg_clip_original = VideoFileClip(background_video)
-                st.write(f"Tamaño del video original: {bg_clip_original.size}")
-                st.write(f"Duración del video original: {bg_clip_original.duration}")
-                
-                bg_clip_resized = resize_and_center_video(bg_clip_original, VIDEO_SIZE)
-                st.write(f"Tamaño del video después del resize: {bg_clip_resized.size}")
-                st.write(f"Duración del video redimensionado: {bg_clip_resized.duration}")
-                
-                total_duration = sum(audio_clip.duration for audio_clip in clips_audio) if clips_audio else 0
-                logging.info(f"Duración total requerida: {total_duration}")
-                
-                # Creamos el loop si es necesario
-                if bg_clip_resized.duration < total_duration:
-                    bg_clip_looped = bg_clip_resized.loop(duration=total_duration)
-                else:
-                    bg_clip_looped = bg_clip_resized
-            
-            except Exception as e:
-                logging.error(f"Error al cargar o procesar el video de fondo: {e}")
-                bg_clip_looped = None
-
-        else:
-            bg_clip_looped = None
-        
-        for i, segmento in enumerate(segmentos_texto):
-            logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
-            
-            synthesis_input = texttospeech.SynthesisInput(text=segmento)
-            voice = texttospeech.VoiceSelectionParams(
-                    language_code="es-ES",
-                    name=voz,
-                    ssml_gender=VOCES_DISPONIBLES[voz]
-                )
-            audio_config = texttospeech.AudioConfig(
-                    audio_encoding=texttospeech.AudioEncoding.MP3
-                )
-                
-            retry_count = 0
-            max_retries = 3
-                
-            while retry_count <= max_retries:
+            # Cargar y procesar video de fondo (si existe) fuera del bucle
+            if background_video:
                 try:
-                    response = client.synthesize_speech(
-                        input=synthesis_input,
-                        voice=voice,
-                        audio_config=audio_config
-                    )
-                    break
+                    bg_clip_original = VideoFileClip(background_video)
+                    bg_clip_resized = bg_clip_original.resize(VIDEO_SIZE)
+                    bg_clip_resized = bg_clip_resized.set_opacity(0.5)
+                
+                    for i, segmento in enumerate(segmentos_texto):
+                        logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
+                    
+                        synthesis_input = texttospeech.SynthesisInput(text=segmento)
+                        voice = texttospeech.VoiceSelectionParams(
+                                language_code="es-ES",
+                                name=voz,
+                                ssml_gender=VOCES_DISPONIBLES[voz]
+                            )
+                        audio_config = texttospeech.AudioConfig(
+                                audio_encoding=texttospeech.AudioEncoding.MP3
+                            )
+                        
+                        retry_count = 0
+                        max_retries = 3
+                        
+                        while retry_count <= max_retries:
+                            try:
+                                response = client.synthesize_speech(
+                                    input=synthesis_input,
+                                    voice=voice,
+                                    audio_config=audio_config
+                                )
+                                break
+                            except Exception as e:
+                                logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
+                                if "429" in str(e):
+                                    retry_count +=1
+                                    time.sleep(2**retry_count)
+                                else:
+                                    raise
+                    
+                        if retry_count > max_retries:
+                            raise Exception("Maximos intentos de reintento alcanzado")
+                    
+                        temp_filename = f"temp_audio_{i}.mp3"
+                        archivos_temp.append(temp_filename)
+                        with open(temp_filename, "wb") as out:
+                            out.write(response.audio_content)
+                        
+                        audio_clip = AudioFileClip(temp_filename)
+                        clips_audio.append(audio_clip)
+                        duracion = audio_clip.duration
+                    
+                        # Crear segmento de video con fondo
+                        bg_clip_segment = bg_clip_resized.loop(duration=duracion)
+                    
+                        # Capa negra semitransparente
+                        black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.5).set_duration(duracion)
+                    
+                        # Texto
+                        text_img = create_text_image(segmento, font_size=font_size, text_color="white")
+                        txt_clip = ImageClip(text_img).set_duration(duracion).set_position("center")
+                    
+                        # Composición final
+                        video_segment = CompositeVideoClip([bg_clip_segment, black_clip, txt_clip])
+                        video_segment = video_segment.set_audio(audio_clip)
+                    
+                        clips_finales.append(video_segment)
+                    
+                        tiempo_acumulado += duracion
+                        time.sleep(0.2)
                 except Exception as e:
-                    logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
-                    if "429" in str(e):
-                        retry_count +=1
-                        time.sleep(2**retry_count)
-                    else:
-                        raise
-            
-            if retry_count > max_retries:
-                raise Exception("Maximos intentos de reintento alcanzado")
-            
-            temp_filename = f"temp_audio_{i}.mp3"
-            archivos_temp.append(temp_filename)
-            with open(temp_filename, "wb") as out:
-                out.write(response.audio_content)
-                
-            audio_clip = AudioFileClip(temp_filename)
-            clips_audio.append(audio_clip)
-            duracion = audio_clip.duration
-            
-            if bg_clip_looped:
-                st.write(f"Tiempo acumulado: {tiempo_acumulado}")
-                st.write(f"Duración del segmento actual: {duracion}")
-                                  # Creamos una capa negra semitransparente
-                black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.4).set_duration(duracion)
-                
-                # Extraemos el segmento correcto del video de fondo
-                bg_segment = bg_clip_looped.subclip(tiempo_acumulado, tiempo_acumulado + duracion)
-                
-                # Creamos el clip de texto
-                text_img = create_text_image(segmento, font_size=font_size, text_color=text_color, background_video=background_video)
-                txt_clip = ImageClip(text_img).set_duration(duracion).set_position('center')
-                
-                # Componemos el video final
-                video_segment = CompositeVideoClip([bg_segment, black_clip, txt_clip])
-                video_segment = video_segment.set_audio(audio_clip)
+                    logging.error(f"Error al cargar o procesar el video de fondo: {e}")
+                    bg_clip_looped = None
+
             else:
+                bg_clip_looped = None
+        
+            for i, segmento in enumerate(segmentos_texto):
+                logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
+            
+                synthesis_input = texttospeech.SynthesisInput(text=segmento)
+                voice = texttospeech.VoiceSelectionParams(
+                        language_code="es-ES",
+                        name=voz,
+                        ssml_gender=VOCES_DISPONIBLES[voz]
+                    )
+                audio_config = texttospeech.AudioConfig(
+                        audio_encoding=texttospeech.AudioEncoding.MP3
+                    )
+                
+                retry_count = 0
+                max_retries = 3
+                
+                while retry_count <= max_retries:
+                    try:
+                        response = client.synthesize_speech(
+                            input=synthesis_input,
+                            voice=voice,
+                            audio_config=audio_config
+                        )
+                        break
+                    except Exception as e:
+                        logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
+                        if "429" in str(e):
+                            retry_count +=1
+                            time.sleep(2**retry_count)
+                        else:
+                            raise
+            
+                if retry_count > max_retries:
+                    raise Exception("Maximos intentos de reintento alcanzado")
+            
+                temp_filename = f"temp_audio_{i}.mp3"
+                archivos_temp.append(temp_filename)
+                with open(temp_filename, "wb") as out:
+                    out.write(response.audio_content)
+                
+                audio_clip = AudioFileClip(temp_filename)
+                clips_audio.append(audio_clip)
+                duracion = audio_clip.duration
+            
                 # Si no hay video de fondo, creamos un clip negro como antes
                 black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.5).set_duration(duracion)
 
@@ -251,15 +281,14 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
                 txt_clip = (ImageClip(text_img)
                             .set_duration(duracion)
                             .set_position('center'))
-                
+            
                 video_segment = CompositeVideoClip([black_clip, txt_clip])
                 video_segment = video_segment.set_audio(audio_clip)
 
-            clips_finales.append(video_segment)
+                clips_finales.append(video_segment)
             
-            tiempo_acumulado += duracion
-            time.sleep(0.2)
-
+                tiempo_acumulado += duracion
+                time.sleep(0.2)
         video_final = concatenate_videoclips(clips_finales, method="chain")
         
         video_final.write_videofile(
@@ -323,24 +352,20 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
             
         return False, str(e)
 
-
-def main():
-    st.title("Creador de Videos Automático")
+    def main():
+        st.title("Creador de Videos Automático")
     
-    uploaded_file = st.file_uploader("Carga un archivo de texto", type="txt")
+        uploaded_file = st.file_uploader("Carga un archivo de texto", type="txt")
     
-    
-    with st.sidebar:
-        st.header("Configuración del Video")
-        voz_seleccionada = st.selectbox("Selecciona la voz", options=list(VOCES_DISPONIBLES.keys()))
-        font_size = st.slider("Tamaño de la fuente", min_value=10, max_value=200, value=DEFAULT_FONT_SIZE)
-        background_type = st.radio("Tipo de fondo", ["Video"])
-
-        background_video = None
-
-        if background_type == "Video":
-            background_video = st.file_uploader("Video de fondo (opcional)", type=["mp4", "mov", "avi"])
-
+        with st.sidebar:
+            st.header("Configuración del Video")
+            voz_seleccionada = st.selectbox("Selecciona la voz", options=list(VOCES_DISPONIBLES.keys()))
+            font_size = st.slider("Tamaño de la fuente", min_value=10, max_value=200, value=DEFAULT_FONT_SIZE)
+            background_type = st.radio("Tipo de fondo", ["Video"])
+        
+            background_video = None
+            if background_type == "Video":
+                background_video = st.file_uploader("Video de fondo (opcional)", type=["mp4", "mov", "avi"])
     
     if uploaded_file:
         texto = uploaded_file.read().decode("utf-8")
