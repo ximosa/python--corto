@@ -190,57 +190,103 @@ def create_simple_video(
                 segmento_actual = frase
         segmentos_texto.append(segmento_actual.strip())
         if background_video:
-                try:
-                    bg_clip_original = VideoFileClip(background_video)
+            try:
+                bg_clip_original = VideoFileClip(background_video)
                 
-                    # Ajustamos el tamaño al formato vertical de Shorts
-                    aspect_ratio = VIDEO_SIZE[0] / VIDEO_SIZE[1]
-                    original_aspect = bg_clip_original.size[0] / bg_clip_original.size[1]
+                # Ajustamos el tamaño al formato vertical de Shorts
+                aspect_ratio = VIDEO_SIZE[0] / VIDEO_SIZE[1]
+                original_aspect = bg_clip_original.size[0] / bg_clip_original.size[1]
                 
-                    if original_aspect > aspect_ratio:
-                        new_height = VIDEO_SIZE[1]
-                        new_width = int(new_height * original_aspect)
-                        x_center = (new_width - VIDEO_SIZE[0]) // 2
-                        bg_clip_base = (bg_clip_original
-                                      .resize(height=new_height)
-                                      .crop(x1=x_center, y1=0, 
-                                         x2=x_center + VIDEO_SIZE[0], 
-                                         y2=VIDEO_SIZE[1]))
-                    else:
-                        new_width = VIDEO_SIZE[0]
-                        new_height = int(new_width / original_aspect)
-                        y_center = (new_height - VIDEO_SIZE[1]) // 2
-                        bg_clip_base = (bg_clip_original
-                                      .resize(width=new_width)
-                                      .crop(x1=0, y1=y_center,
-                                         x2=VIDEO_SIZE[0],
-                                         y2=y_center + VIDEO_SIZE[1]))
+                if original_aspect > aspect_ratio:
+                    new_height = VIDEO_SIZE[1]
+                    new_width = int(new_height * original_aspect)
+                    x_center = (new_width - VIDEO_SIZE[0]) // 2
+                    bg_clip_base = (bg_clip_original
+                                  .resize(height=new_height)
+                                  .crop(x1=x_center, y1=0, 
+                                       x2=x_center + VIDEO_SIZE[0], 
+                                       y2=VIDEO_SIZE[1]))
+                else:
+                    new_width = VIDEO_SIZE[0]
+                    new_height = int(new_width / original_aspect)
+                    y_center = (new_height - VIDEO_SIZE[1]) // 2
+                    bg_clip_base = (bg_clip_original
+                                  .resize(width=new_width)
+                                  .crop(x1=0, y1=y_center,
+                                       x2=VIDEO_SIZE[0],
+                                       y2=y_center + VIDEO_SIZE[1]))
 
-                    # Creamos clips individuales para cada segmento
-                    for i, segmento in enumerate(segmentos_texto):
-                        audio_clip = clips_audio[i]
-                        duracion = audio_clip.duration
                     
-                        # Calculamos cuántas veces necesitamos repetir el video base
-                        num_loops = int(np.ceil(duracion / bg_clip_base.duration))
-                        bg_clip_segment = bg_clip_base.loop(n_times=num_loops).subclip(0, duracion)
-                        bg_clip_segment = bg_clip_segment.set_opacity(0.5)
+                for i, segmento in enumerate(segmentos_texto):
+                  
+                    synthesis_input = texttospeech.SynthesisInput(text=segmento)
+                    voice = texttospeech.VoiceSelectionParams(
+                        language_code="es-ES",
+                        name=voz,
+                        ssml_gender=VOCES_DISPONIBLES[voz],
+                    )
+                    audio_config = texttospeech.AudioConfig(
+                        audio_encoding=texttospeech.AudioEncoding.MP3
+                    )
                     
-                        # Creamos una capa negra semitransparente
-                        black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.5).set_duration(duracion)
+                    retry_count = 0
+                    max_retries = 3
                     
-                        text_img = create_text_image(segmento, font_size=font_size, text_color=text_color)
-                        txt_clip = ImageClip(text_img).set_duration(duracion).set_position("center")
+                    while retry_count <= max_retries:
+                        try:
+                            response = client.synthesize_speech(
+                            input=synthesis_input, voice=voice, audio_config=audio_config
+                            )
+                            break
+                        except Exception as e:
+                            logging.error(
+                            f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}"
+                            )
+                            if "429" in str(e):
+                                retry_count += 1
+                                time.sleep(2**retry_count)
+                            else:
+                                raise
+            
+                    if retry_count > max_retries:
+                        raise Exception("Maximos intentos de reintento alcanzado")
+
+                    temp_filename = f"temp_audio_{i}.mp3"
+                    archivos_temp.append(temp_filename)
+                    with open(temp_filename, "wb") as out:
+                        out.write(response.audio_content)
+                    try:
+                       audio_clip = AudioFileClip(temp_filename)
+                       clips_audio.append(audio_clip)
+                       duracion = audio_clip.duration
+                    except Exception as e:
+                        logging.error(f"Error al cargar el clip de audio: {e}")
+                        continue  # Skip to the next segment if audio loading fails
                     
-                        video_segment = CompositeVideoClip([bg_clip_segment, black_clip, txt_clip])
-                        video_segment = video_segment.set_audio(audio_clip)
+                    # Calculamos cuántas veces necesitamos repetir el video base
+                    num_loops = int(np.ceil(duracion / bg_clip_base.duration))
+                    bg_clip_segment = bg_clip_base.loop(n_times=num_loops).subclip(0, duracion)
+                    bg_clip_segment = bg_clip_segment.set_opacity(0.5)
                     
-                        clips_finales.append(video_segment)
-                except Exception as e:
-                    logging.error(f"Error al cargar o procesar el video de fondo: {e}")
-                    bg_clip_base = None
-            else:
-            bg_clip_base = None        for i, segmento in enumerate(segmentos_texto):
+                    # Creamos una capa negra semitransparente
+                    black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.5).set_duration(duracion)
+                    
+                    text_img = create_text_image(segmento, font_size=font_size, text_color=text_color)
+                    txt_clip = ImageClip(text_img).set_duration(duracion).set_position("center")
+                    
+                    video_segment = CompositeVideoClip([bg_clip_segment, black_clip, txt_clip])
+                    video_segment = video_segment.set_audio(audio_clip)
+                    
+                    clips_finales.append(video_segment)
+                    
+                    tiempo_acumulado += duracion
+                    time.sleep(0.1)
+            except Exception as e:
+                logging.error(f"Error al cargar o procesar el video de fondo: {e}")
+                bg_clip_base = None
+        else:
+             bg_clip_base = None        
+        for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
 
             synthesis_input = texttospeech.SynthesisInput(text=segmento)
@@ -374,9 +420,8 @@ def create_simple_video(
             except:
                 pass
 
-        if bg_clip_resized:
+        if 'bg_clip_original' in locals() and bg_clip_original:
             bg_clip_original.close()
-
         return True, "Video generado exitosamente"
 
     except Exception as e:
