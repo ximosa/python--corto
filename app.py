@@ -8,8 +8,6 @@ from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips, Vid
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import tempfile
-import requests
-from io import BytesIO
 
 logging.basicConfig(level=logging.INFO)
 
@@ -30,9 +28,6 @@ AUDIO_CODEC = 'aac'
 VIDEO_PRESET = 'ultrafast'
 VIDEO_THREADS = 4
 IMAGE_SIZE_TEXT = (1080, 1920) #Tamaño de imagen para texto
-IMAGE_SIZE_SUBSCRIPTION = (1080, 1920) #Tamaño de imagen para suscripcion
-SUBSCRIPTION_DURATION = 5
-LOGO_SIZE = (150, 150) #reducido el tamaño del logo
 VIDEO_SIZE = (1080, 1920)  # Tamaño del video vertical
 
 # Configuración de voces
@@ -61,27 +56,12 @@ VOCES_DISPONIBLES = {
 
 
 def create_text_image(text, size=IMAGE_SIZE_TEXT, font_size=DEFAULT_FONT_SIZE,
-                      bg_color="black", text_color="white", background_image=None,
-                      stretch_background=False, background_video=None):
+                      text_color="white", background_video=None):
     """Creates a text image with the specified text and styles."""
     if background_video:
         img = Image.new('RGBA', size, (0, 0, 0, 0))  # Fondo completamente transparente
-    elif background_image:
-      try:
-          img = Image.open(background_image).convert("RGB")
-          if stretch_background:
-              img = img.resize(size)
-          else:
-              img.thumbnail(size)
-              new_img = Image.new('RGB', size, bg_color)
-              new_img.paste(img, ((size[0]-img.width)//2, (size[1]-img.height)//2))
-              img = new_img
-            
-      except Exception as e:
-          logging.error(f"Error al cargar imagen de fondo: {str(e)}, usando fondo {bg_color}.")
-          img = Image.new('RGB', size, bg_color)
     else:
-        img = Image.new('RGB', size, bg_color)
+        img = Image.new('RGBA', size, (0, 0, 0, 0))  # Fondo completamente transparente
     
     draw = ImageDraw.Draw(img)
     try:
@@ -117,62 +97,13 @@ def create_text_image(text, size=IMAGE_SIZE_TEXT, font_size=DEFAULT_FONT_SIZE,
         y += line_height
     return np.array(img)
 
-def create_subscription_image(logo_url, size=IMAGE_SIZE_SUBSCRIPTION, font_size=70, #reducimos tamaño de la fuente
-                             background_image=None, bg_color="black", background_video=None):
-    """Creates an image for the subscription message."""
-    if background_video:
-       img = Image.new('RGB', size, bg_color)
-    elif background_image:
-      try:
-          img = Image.open(background_image).convert("RGB")
-          img = img.resize(size)
-      except Exception as e:
-        logging.error(f"Error al cargar imagen de fondo para la suscripción: {str(e)}, usando fondo negro.")
-        img = Image.new('RGB', size, bg_color)
-    else:
-      img = Image.new('RGB', size, bg_color)
-
-    draw = ImageDraw.Draw(img)
-    try:
-        font = ImageFont.truetype(FONT_PATH, font_size)
-        font2 = ImageFont.truetype(FONT_PATH, font_size//2)
-    except:
-        font = ImageFont.load_default()
-        font2 = ImageFont.load_default()
-
-    try:
-        response = requests.get(logo_url)
-        response.raise_for_status()
-        logo_img = Image.open(BytesIO(response.content)).convert("RGBA")
-        logo_img = logo_img.resize(LOGO_SIZE)
-        logo_position = (20, 20)
-        img.paste(logo_img, logo_position, logo_img)
-    except Exception as e:
-        logging.error(f"Error al cargar el logo: {str(e)}")
-
-    text1_line1 = "¡SUSCRÍBETE A" # Dividimos el texto en dos lineas
-    text1_line2 = "LECTOR DE SOMBRAS!"
     
-    left1_1, top1_1, right1_1, bottom1_1 = draw.textbbox((0, 0), text1_line1, font=font)
-    left1_2, top1_2, right1_2, bottom1_2 = draw.textbbox((0, 0), text1_line2, font=font)
-    x1 = (size[0] - max(right1_1 - left1_1, right1_2-left1_2)) // 2 # Centramos ambas lineas
-    y1 = (size[1] - (bottom1_1 - top1_1 + bottom1_2 - top1_2)) // 2 - 40 # Ajustamos la posicion
-
-    draw.text((x1, y1), text1_line1, font=font, fill="white")
-    draw.text((x1, y1 + (bottom1_1-top1_1)), text1_line2, font=font, fill="white") # dibuja el texto en la segunda linea
-    
-    text2 = "Dale like y activa la campana 🔔"
-    left2, top2, right2, bottom2 = draw.textbbox((0, 0), text2, font=font2)
-    x2 = (size[0] - (right2 - left2)) // 2
-    y2 = y1 + (bottom1_1 - top1_1) + (bottom1_2-top1_2) + 40 # Ajustamos la posicion del texto secundario
-    draw.text((x2, y2), text2, font=font2, fill="white")
-    return np.array(img)
-    
-def create_simple_video(texto, nombre_salida, voz, logo_url, font_size, bg_color, text_color,
-                 background_image, stretch_background, background_video):
+def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
     archivos_temp = []
     clips_audio = []
     clips_finales = []
+    text_color = "white" # Color de texto por defecto
+    bg_color = "black" # Color de fondo por defecto
     
     try:
         logging.info("Iniciando proceso de creación de video...")
@@ -264,32 +195,11 @@ def create_simple_video(texto, nombre_salida, voz, logo_url, font_size, bg_color
              
               video_segment = CompositeVideoClip([bg_clip_segment, black_clip, txt_clip])
               video_segment = video_segment.set_audio(audio_clip)
-            else:
-              text_img = create_text_image(segmento, font_size=font_size,
-                                    bg_color=bg_color, text_color=text_color,
-                                    background_image=background_image,
-                                    stretch_background=stretch_background)
-              txt_clip = (ImageClip(text_img)
-                      .set_start(tiempo_acumulado)
-                      .set_duration(duracion)
-                      .set_position('center'))
-              video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
             
             clips_finales.append(video_segment)
             
             tiempo_acumulado += duracion
             time.sleep(0.2)
-        
-        # Añadir clip de suscripción
-        subscribe_img = create_subscription_image(logo_url, background_image=background_image, bg_color=bg_color, font_size=70, background_video = background_video)
-        duracion_subscribe = SUBSCRIPTION_DURATION
-
-        subscribe_clip = (ImageClip(subscribe_img)
-                        .set_start(tiempo_acumulado)
-                        .set_duration(duracion_subscribe)
-                        .set_position('center'))
-
-        clips_finales.append(subscribe_clip)
 
         video_final = concatenate_videoclips(clips_finales, method="chain")
         
@@ -357,21 +267,13 @@ def main():
         st.header("Configuración del Video")
         voz_seleccionada = st.selectbox("Selecciona la voz", options=list(VOCES_DISPONIBLES.keys()))
         font_size = st.slider("Tamaño de la fuente", min_value=10, max_value=200, value=DEFAULT_FONT_SIZE)
-        bg_color = st.color_picker("Color de fondo", value="#000000")
-        text_color = st.color_picker("Color de texto", value="#ffffff")
-        background_type = st.radio("Tipo de fondo", ["Color sólido", "Imagen", "Video"])
+        background_type = st.radio("Tipo de fondo", ["Video"])
 
-        background_image = None
         background_video = None
 
-        if background_type == "Imagen":
-            background_image = st.file_uploader("Imagen de fondo (opcional)", type=["png", "jpg", "jpeg", "webp"])
-        elif background_type == "Video":
+        if background_type == "Video":
             background_video = st.file_uploader("Video de fondo (opcional)", type=["mp4", "mov", "avi"])
-        stretch_background = st.checkbox("Estirar imagen de fondo", value=False)
 
-
-    logo_url = "https://yt3.ggpht.com/pBI3iT87_fX91PGHS5gZtbQi53nuRBIvOsuc-Z-hXaE3GxyRQF8-vEIDYOzFz93dsKUEjoHEwQ=s176-c-k-c0x00ffffff-no-rj"
     
     if uploaded_file:
         texto = uploaded_file.read().decode("utf-8")
@@ -382,20 +284,16 @@ def main():
                 nombre_salida_completo = f"{nombre_salida}.mp4"
                 
                 
-                img_path = None
                 video_path = None
-                if background_image and background_type == "Imagen":
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(background_image.name)[1]) as tmp_file:
-                        tmp_file.write(background_image.read())
-                        img_path = tmp_file.name
+
                 if background_video and background_type == "Video":
                     with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(background_video.name)[1]) as tmp_file:
                         tmp_file.write(background_video.read())
                         video_path = tmp_file.name
 
 
-                success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url,
-                                                        font_size, bg_color, text_color, img_path, stretch_background, video_path)
+                success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada,
+                                                        font_size, video_path)
                 if success:
                   st.success(message)
                   st.video(nombre_salida_completo)
@@ -403,19 +301,13 @@ def main():
                     st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
                     
                   st.session_state.video_path = nombre_salida_completo
-                  if img_path:
-                    os.remove(img_path)
                   if video_path:
                     os.remove(video_path)
                 else:
                   st.error(f"Error al generar video: {message}")
-                  if img_path:
-                    os.remove(img_path)
                   if video_path:
                     os.remove(video_path)
 
-        if st.session_state.get("video_path"):
-            st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     # Inicializar session state
