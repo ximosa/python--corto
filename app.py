@@ -34,6 +34,7 @@ with open("google_credentials.json", "w") as f:
     json.dump(credentials, f)
 
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google_credentials.json"
+
 # Constantes
 TEMP_DIR = "temp"
 FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -48,6 +49,7 @@ IMAGE_SIZE_SUBSCRIPTION = (1080, 1920)
 SUBSCRIPTION_DURATION = 5
 LOGO_SIZE = (200, 200)
 VIDEO_SIZE = (1080, 1920)
+
 # Configuración de voces
 VOCES_DISPONIBLES = {
     "es-ES-Standard-A": texttospeech.SsmlVoiceGender.FEMALE,
@@ -88,8 +90,7 @@ def create_text_image(
     if background_video:
         return None
 
-    # Creamos una imagen con canal alfa (RGBA)
-    img = Image.new("RGBA", size, (0, 0, 0, 0))  # Fondo completamente transparente
+    img = Image.new("RGBA", size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
 
     try:
@@ -125,7 +126,6 @@ def create_text_image(
     return np.array(img)
 
 def create_subscription_image(logo_url, size=IMAGE_SIZE_SUBSCRIPTION, font_size=60):
-    """Creates an image for the subscription message."""
     img = Image.new("RGB", size, (255, 0, 0))
     draw = ImageDraw.Draw(img)
     try:
@@ -139,7 +139,7 @@ def create_subscription_image(logo_url, size=IMAGE_SIZE_SUBSCRIPTION, font_size=
         response = requests.get(logo_url)
         response.raise_for_status()
         logo_img = Image.open(BytesIO(response.content)).convert("RGBA")
-        logo_img = logo_img.resize(LOGO_SIZE)  # Quitamos ANTIALIAS
+        logo_img = logo_img.resize(LOGO_SIZE)
         logo_position = (20, 20)
         img.paste(logo_img, logo_position, logo_img)
     except Exception as e:
@@ -157,7 +157,6 @@ def create_subscription_image(logo_url, size=IMAGE_SIZE_SUBSCRIPTION, font_size=
     y2 = (size[1] - (bottom2 - top2)) // 2 + (bottom1 - top1) // 2 + 20
     draw.text((x2, y2), text2, font=font2, fill="white")
     return np.array(img)
-
 def create_simple_video(
     texto,
     nombre_salida,
@@ -177,7 +176,6 @@ def create_simple_video(
         logging.info("Iniciando proceso de creación de video...")
         frases = [f.strip() + "." for f in texto.split(".") if f.strip()]
         client = texttospeech.TextToSpeechClient()
-
         tiempo_acumulado = 0
 
         segmentos_texto = []
@@ -189,6 +187,9 @@ def create_simple_video(
                 segmentos_texto.append(segmento_actual.strip())
                 segmento_actual = frase
         segmentos_texto.append(segmento_actual.strip())
+
+        # Procesamiento del video de fondo
+        bg_clip_base = None
         if background_video:
             try:
                 bg_clip_original = VideoFileClip(background_video)
@@ -203,8 +204,8 @@ def create_simple_video(
                     x_center = (new_width - VIDEO_SIZE[0]) // 2
                     bg_clip_base = (bg_clip_original
                                   .resize(height=new_height)
-                                  .crop(x1=x_center, y1=0, 
-                                       x2=x_center + VIDEO_SIZE[0], 
+                                  .crop(x1=x_center, y1=0,
+                                       x2=x_center + VIDEO_SIZE[0],
                                        y2=VIDEO_SIZE[1]))
                 else:
                     new_width = VIDEO_SIZE[0]
@@ -216,76 +217,15 @@ def create_simple_video(
                                        x2=VIDEO_SIZE[0],
                                        y2=y_center + VIDEO_SIZE[1]))
 
-                    
-                for i, segmento in enumerate(segmentos_texto):
-                  
-                    synthesis_input = texttospeech.SynthesisInput(text=segmento)
-                    voice = texttospeech.VoiceSelectionParams(
-                        language_code="es-ES",
-                        name=voz,
-                        ssml_gender=VOCES_DISPONIBLES[voz],
-                    )
-                    audio_config = texttospeech.AudioConfig(
-                        audio_encoding=texttospeech.AudioEncoding.MP3
-                    )
-                    
-                    retry_count = 0
-                    max_retries = 3
-                    
-                    while retry_count <= max_retries:
-                        try:
-                            response = client.synthesize_speech(
-                            input=synthesis_input, voice=voice, audio_config=audio_config
-                            )
-                            break
-                        except Exception as e:
-                            logging.error(
-                            f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}"
-                            )
-                            if "429" in str(e):
-                                retry_count += 1
-                                time.sleep(2**retry_count)
-                            else:
-                                raise
-            
-                    if retry_count > max_retries:
-                        raise Exception("Maximos intentos de reintento alcanzado")
-
-                    temp_filename = f"temp_audio_{i}.mp3"
-                    archivos_temp.append(temp_filename)
-                    with open(temp_filename, "wb") as out:
-                        out.write(response.audio_content)
-                    try:
-                       audio_clip = AudioFileClip(temp_filename)
-                       clips_audio.append(audio_clip)
-                       duracion = audio_clip.duration
-                    except Exception as e:
-                        logging.error(f"Error al cargar el clip de audio: {e}")
-                        continue  # Skip to the next segment if audio loading fails
-                    
-                    # Calculamos cuántas veces necesitamos repetir el video base
-                    num_loops = int(np.ceil(duracion / bg_clip_base.duration))
-                    bg_clip_segment = bg_clip_base.loop(n_times=num_loops).subclip(0, duracion)
-                    bg_clip_segment = bg_clip_segment.set_opacity(0.5)
-                    
-                    # Creamos una capa negra semitransparente
-                    black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.5).set_duration(duracion)
-                    
-                    text_img = create_text_image(segmento, font_size=font_size, text_color=text_color)
-                    txt_clip = ImageClip(text_img).set_duration(duracion).set_position("center")
-                    
-                    video_segment = CompositeVideoClip([bg_clip_segment, black_clip, txt_clip])
-                    video_segment = video_segment.set_audio(audio_clip)
-                    
-                    clips_finales.append(video_segment)
-                    
-                    tiempo_acumulado += duracion
-                    time.sleep(0.1)
+                # Calculamos la duración total para el video de fondo
+                duracion_total = sum(len(segmento.strip().split()) * 0.3 for segmento in segmentos_texto) + SUBSCRIPTION_DURATION
+                bg_clip_base = bg_clip_base.loop(duration=duracion_total)
+                
             except Exception as e:
                 logging.error(f"Error al cargar o procesar el video de fondo: {e}")
                 bg_clip_base = None
-        else:
-             bg_clip_base = None        
+
+        # Procesamiento de segmentos
         for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
 
@@ -309,9 +249,7 @@ def create_simple_video(
                     )
                     break
                 except Exception as e:
-                    logging.error(
-                        f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}"
-                    )
+                    logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
                     if "429" in str(e):
                         retry_count += 1
                         time.sleep(2**retry_count)
@@ -332,30 +270,19 @@ def create_simple_video(
                 duracion = audio_clip.duration
             except Exception as e:
                 logging.error(f"Error al cargar el clip de audio: {e}")
-                continue  # Skip to the next segment if audio loading fails
+                continue
 
-            if bg_clip_loop:
-                # Usamos el mismo bg_clip_loop pero cortado para cada segmento
-                start_time = tiempo_acumulado
-                bg_clip_segment = bg_clip_loop.subclip(start_time, start_time + duracion)
-
-                # Creamos una capa negra semitransparente
-                black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(
-                    0.5
-                ).set_duration(duracion)
-
-                text_img = create_text_image(
-                    segmento, font_size=font_size, text_color=text_color
-                )
-                txt_clip = (
-                    ImageClip(text_img)
-                    .set_duration(duracion)
-                    .set_position("center")
-                )
-
+            if bg_clip_base:
+                start_time = tiempo_acumulado % bg_clip_base.duration
+                bg_clip_segment = bg_clip_base.subclip(start_time, start_time + duracion)
+                
+                black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.5).set_duration(duracion)
+                
+                text_img = create_text_image(segmento, font_size=font_size, text_color=text_color)
+                txt_clip = ImageClip(text_img).set_duration(duracion).set_position("center")
+                
                 video_segment = CompositeVideoClip([bg_clip_segment, black_clip, txt_clip])
                 video_segment = video_segment.set_audio(audio_clip)
-
             else:
                 text_img = create_text_image(
                     segmento,
@@ -365,31 +292,23 @@ def create_simple_video(
                     background_image=background_image,
                     full_size_background=True,
                 )
-                txt_clip = (
-                    ImageClip(text_img)
-                    .set_duration(duracion)
-                    .set_position("center")
-                )
+                txt_clip = ImageClip(text_img).set_duration(duracion).set_position("center")
                 video_segment = txt_clip.set_audio(audio_clip)
 
             clips_finales.append(video_segment)
             tiempo_acumulado += duracion
-            time.sleep(0.1)  # Add a small delay to prevent overwhelming resources
+            time.sleep(0.1)
 
         subscribe_img = create_subscription_image(logo_url)
-        duracion_subscribe = 5
-
         subscribe_clip = (
             ImageClip(subscribe_img)
-            .set_start(tiempo_acumulado)
-            .set_duration(duracion_subscribe)
+            .set_duration(SUBSCRIPTION_DURATION)
             .set_position("center")
         )
 
         clips_finales.append(subscribe_clip)
-
         video_final = concatenate_videoclips(clips_finales, method="compose")
-
+        
         video_final.write_videofile(
             nombre_salida,
             fps=VIDEO_FPS,
@@ -401,13 +320,8 @@ def create_simple_video(
 
         video_final.close()
 
-        for clip in clips_audio:
-            try:
-                clip.close()
-            except:
-                pass
-
-        for clip in clips_finales:
+        # Limpieza de recursos
+        for clip in clips_audio + clips_finales:
             try:
                 clip.close()
             except:
@@ -420,19 +334,15 @@ def create_simple_video(
             except:
                 pass
 
-        if 'bg_clip_original' in locals() and bg_clip_original:
+        if 'bg_clip_original' in locals():
             bg_clip_original.close()
+
         return True, "Video generado exitosamente"
 
     except Exception as e:
         logging.error(f"Error: {str(e)}")
-        for clip in clips_audio:
-            try:
-                clip.close()
-            except:
-                pass
-
-        for clip in clips_finales:
+        # Limpieza en caso de error
+        for clip in clips_audio + clips_finales:
             try:
                 clip.close()
             except:
