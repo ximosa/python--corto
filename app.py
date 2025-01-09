@@ -157,7 +157,7 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
             try:
               bg_clip_original = VideoFileClip(background_video)
               bg_clip_resized = resize_and_center_video(bg_clip_original, VIDEO_SIZE)
-              bg_clip_resized = bg_clip_resized.set_opacity(0.5)
+              bg_clip_resized = bg_clip_resized.set_opacity(0.8)
               
               # Calcular la duración total de todos los audios
               total_duration = 0
@@ -258,7 +258,7 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
             
             if bg_clip_looped:
               # Creamos una capa negra semitransparente
-              black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.5).set_duration(duracion)
+              black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.3).set_duration(duracion)
 
               text_img = create_text_image(segmento, font_size=font_size,
                                     text_color=text_color,
