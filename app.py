@@ -155,14 +155,14 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
         # Cargar y procesar video de fondo (si existe) fuera del bucle
         if background_video:
             try:
-                logging.info(f"Path del video temporal: {background_video}")
+                st.write(f"Path del video temporal: {video_path}")
                 bg_clip_original = VideoFileClip(background_video)
-                logging.info(f"Tamaño del video original: {bg_clip_original.size}")
-                logging.info(f"Duración del video original: {bg_clip_original.duration}")
+                st.write(f"Tamaño del video original: {bg_clip_original.size}")
+                st.write(f"Duración del video original: {bg_clip_original.duration}")
                 
                 bg_clip_resized = resize_and_center_video(bg_clip_original, VIDEO_SIZE)
-                logging.info(f"Tamaño del video después del resize: {bg_clip_resized.size}")
-                logging.info(f"Duración del video redimensionado: {bg_clip_resized.duration}")
+                st.write(f"Tamaño del video después del resize: {bg_clip_resized.size}")
+                st.write(f"Duración del video redimensionado: {bg_clip_resized.duration}")
                 
                 total_duration = sum(audio_clip.duration for audio_clip in clips_audio) if clips_audio else 0
                 logging.info(f"Duración total requerida: {total_duration}")
@@ -225,8 +225,8 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
             duracion = audio_clip.duration
             
             if bg_clip_looped:
-                logging.info(f"Tiempo acumulado: {tiempo_acumulado}")
-                logging.info(f"Duración del segmento actual: {duracion}")
+                st.write(f"Tiempo acumulado: {tiempo_acumulado}")
+                st.write(f"Duración del segmento actual: {duracion}")
                                   # Creamos una capa negra semitransparente
                 black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.4).set_duration(duracion)
                 
