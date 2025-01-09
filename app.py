@@ -83,27 +83,29 @@ def create_text_image(
     background_video=None,
     background_image=None,
     full_size_background=False,
-    stretch_background=False
+    stretch_background=False,
 ):
     if full_size_background:
         size = VIDEO_SIZE
-
+        
+    if background_video:
+        return None
+    
     if background_image:
-      try:
-          img = Image.open(background_image).convert("RGB")
-          if stretch_background:
-              img = img.resize(size)
-          else:
-            img.thumbnail(size)
-            new_img = Image.new('RGB', size, bg_color)
-            new_img.paste(img, ((size[0]-img.width)//2, (size[1]-img.height)//2))
-            img = new_img
-      except Exception as e:
-          logging.error(f"Error al cargar imagen de fondo: {str(e)}, usando fondo {bg_color}.")
-          img = Image.new('RGB', size, bg_color)
+        try:
+            img = Image.open(background_image).convert("RGB")
+            if stretch_background:
+                img = img.resize(size)
+            else:
+                img.thumbnail(size)
+                new_img = Image.new('RGB', size, bg_color)
+                new_img.paste(img, ((size[0]-img.width)//2, (size[1]-img.height)//2))
+                img = new_img
+        except Exception as e:
+            logging.error(f"Error al cargar imagen de fondo: {str(e)}, usando fondo {bg_color}.")
+            img = Image.new('RGB', size, bg_color)
     else:
         img = Image.new('RGB', size, bg_color)
-
 
     draw = ImageDraw.Draw(img)
 
@@ -173,6 +175,7 @@ def create_subscription_image(logo_url, size=IMAGE_SIZE_SUBSCRIPTION, font_size=
     draw.text((x2, y2), text2, font=font2, fill="white")
     return np.array(img)
 
+
 def create_simple_video(
     texto,
     nombre_salida,
@@ -203,16 +206,22 @@ def create_simple_video(
                 segmento_actual = frase
         segmentos_texto.append(segmento_actual.strip())
 
-        # if background_video:
-        #     try:
-        #         bg_clip_original = VideoFileClip(background_video)
-        #         bg_clip_resized = bg_clip_original.resize(VIDEO_SIZE)
-        #         bg_clip_resized = bg_clip_resized.set_opacity(0.5)
-        #     except Exception as e:
-        #         logging.error(f"Error al cargar o procesar el video de fondo: {e}")
-        #         bg_clip_resized = None
-        # else:
-        #     bg_clip_resized = None
+        if background_video:
+             try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(background_video)[1]) as tmp_file:
+                     tmp_file.write(requests.get(background_video).content)
+                     video_path = tmp_file.name
+
+                bg_clip_original = VideoFileClip(video_path)
+                bg_clip_resized = bg_clip_original.resize(VIDEO_SIZE)
+                bg_clip_resized = bg_clip_resized.set_opacity(0.5)
+                archivos_temp.append(video_path)
+
+             except Exception as e:
+                logging.error(f"Error al cargar o procesar el video de fondo: {e}")
+                bg_clip_resized = None
+        else:
+            bg_clip_resized = None
 
         # Generar audio para todo el texto
         full_text = " ".join(segmentos_texto)
@@ -258,42 +267,36 @@ def create_simple_video(
         for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
             
-            # if bg_clip_resized:
-            #     # Usar el video de fondo redimensionado
-            #     bg_clip_segment = bg_clip_resized.loop(duration=duracion_total_audio)
+            if bg_clip_resized:
+                # Usar el video de fondo redimensionado
+                bg_clip_segment = bg_clip_resized.loop(duration=duracion_total_audio)
 
-            #     # Creamos una capa negra semitransparente
-            #     black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(
-            #         0.5
-            #     ).set_duration(duracion_total_audio)
+                text_img = create_text_image(
+                     segmento, font_size=font_size, text_color=text_color
+                 )
+                txt_clip = (
+                     ImageClip(text_img)
+                     .set_duration(duracion_total_audio)
+                     .set_position("center")
+                 )
+                video_segment = CompositeVideoClip([bg_clip_segment, txt_clip])
 
-            #     text_img = create_text_image(
-            #         segmento, font_size=font_size, text_color=text_color
-            #     )
-            #     txt_clip = (
-            #         ImageClip(text_img)
-            #         .set_duration(duracion_total_audio)
-            #         .set_position("center")
-            #     )
-
-            #     video_segment = CompositeVideoClip([bg_clip_segment, black_clip, txt_clip])
-                
-            # else:
-            text_img = create_text_image(
-                segmento,
-                font_size=font_size,
-                bg_color=bg_color,
-                text_color=text_color,
-                background_image=background_image,
-                full_size_background=True,
-                stretch_background=stretch_background
-            )
-            txt_clip = (
-                ImageClip(text_img)
-                .set_duration(duracion_total_audio)
-                .set_position("center")
-            )
-            video_segment = txt_clip
+            else:
+                text_img = create_text_image(
+                    segmento,
+                    font_size=font_size,
+                    bg_color=bg_color,
+                    text_color=text_color,
+                    background_image=background_image,
+                    full_size_background=True,
+                    stretch_background = stretch_background
+                )
+                txt_clip = (
+                    ImageClip(text_img)
+                    .set_duration(duracion_total_audio)
+                    .set_position("center")
+                )
+                video_segment = txt_clip
             
             start_time = tiempo_acumulado
             end_time = tiempo_acumulado + (duracion_total_audio / len(segmentos_texto))
@@ -317,7 +320,6 @@ def create_simple_video(
         clips_finales.append(subscribe_clip)
 
         video_final = concatenate_videoclips(clips_finales, method="compose")
-
 
         video_final.write_videofile(
             nombre_salida,
@@ -345,8 +347,8 @@ def create_simple_video(
             except:
                 pass
 
-        # if bg_clip_resized:
-        #     bg_clip_original.close()
+        if bg_clip_resized:
+             bg_clip_original.close()
         return True, "Video generado exitosamente"
     except Exception as e:
         logging.error(f"Error: {str(e)}")
@@ -380,7 +382,7 @@ def main():
         )
         bg_color = st.color_picker("Color de fondo", value="#000000")
         text_color = st.color_picker("Color de texto", value="#ffffff")
-        background_type = st.radio("Tipo de fondo", ["Color sólido", "Imagen"])
+        background_type = st.radio("Tipo de fondo", ["Color sólido", "Imagen", "Video"])
         stretch_background = st.checkbox("Estirar imagen de fondo", value=False)
 
         background_image = None
@@ -390,11 +392,10 @@ def main():
             background_image = st.file_uploader(
                 "Imagen de fondo", type=["png", "jpg", "jpeg", "webp"]
             )
-        # elif background_type == "Video":
-        #     background_video = st.file_uploader(
-        #         "Video de fondo", type=["mp4", "mov", "avi"]
-        #     )
-
+        elif background_type == "Video":
+            background_video = st.text_input(
+                "URL del video de fondo (mp4, mov, avi)"
+            )
     logo_url = "https://yt3.ggpht.com/pBI3iT87_fX91PGHS5gZtbQi53nuRBIvOsuc-Z-hXaE3GxyRQF8-vEIDYOzFz93dsKUEjoHEwQ=s176-c-k-c0x00ffffff-no-rj"  # Logo del canal
 
     if uploaded_file:
@@ -406,21 +407,14 @@ def main():
                 nombre_salida_completo = f"{nombre_salida}.mp4"
 
                 img_path = None
-                video_path = None
-
+                
                 if background_image:
                     with tempfile.NamedTemporaryFile(
                         delete=False, suffix=os.path.splitext(background_image.name)[1]
                     ) as tmp_file:
                         tmp_file.write(background_image.read())
                         img_path = tmp_file.name
-
-                # if background_video:
-                #     with tempfile.NamedTemporaryFile(
-                #         delete=False, suffix=os.path.splitext(background_video.name)[1]
-                #     ) as tmp_file:
-                #         tmp_file.write(background_video.read())
-                #         video_path = tmp_file.name
+                
 
                 success, message = create_simple_video(
                     texto,
@@ -430,7 +424,7 @@ def main():
                     font_size,
                     bg_color,
                     text_color,
-                    video_path,
+                    background_video,
                     img_path,
                     stretch_background
                 )
@@ -448,22 +442,18 @@ def main():
                     st.session_state.video_path = nombre_salida_completo
 
                     if img_path:
-                        os.remove(img_path)
-                    if video_path:
-                        os.remove(video_path)
+                         os.remove(img_path)
+
                 else:
                     st.error(f"Error al generar video: {message}")
                     if img_path:
-                        os.remove(img_path)
-                    if video_path:
-                        os.remove(video_path)
+                       os.remove(img_path)
 
         if st.session_state.get("video_path"):
             st.markdown(
                 '<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>',
                 unsafe_allow_html=True,
             )
-
 
 if __name__ == "__main__":
     if "video_path" not in st.session_state:
