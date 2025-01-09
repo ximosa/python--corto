@@ -4,26 +4,12 @@ import json
 import logging
 import time
 from google.cloud import texttospeech
-from moviepy.editor import (
-    AudioFileClip,
-    ImageClip,
-    VideoFileClip,
-    concatenate_videoclips,
-    CompositeVideoClip,
-)
+from moviepy.editor import AudioFileClip, ImageClip, concatenate_videoclips, VideoFileClip, ColorClip, CompositeVideoClip
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import tempfile
 import requests
 from io import BytesIO
-
-# Configuración para nueva versión de Pillow
-import PIL.Image
-
-def ANTIALIAS():
-    return PIL.Image.Resampling.LANCZOS
-
-PIL.Image.ANTIALIAS = ANTIALIAS()
 
 logging.basicConfig(level=logging.INFO)
 
@@ -36,85 +22,76 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google_credentials.json"
 
 # Constantes
 TEMP_DIR = "temp"
-FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-DEFAULT_FONT_SIZE = 40
-VIDEO_FPS = 30
-VIDEO_CODEC = "libx264"
-AUDIO_CODEC = "aac"
-VIDEO_PRESET = "fast"  # Use "fast" or "faster" for faster encoding
+FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"  # Ajusta la ruta si es necesario
+DEFAULT_FONT_SIZE = 50  # Reducimos el tamaño de fuente por defecto
+VIDEO_FPS = 24
+VIDEO_CODEC = 'libx264'
+AUDIO_CODEC = 'aac'
+VIDEO_PRESET = 'ultrafast'
 VIDEO_THREADS = 4
-IMAGE_SIZE_TEXT = (1080, 1350)  # Tamaño para los textos (vertical)
-IMAGE_SIZE_SUBSCRIPTION = (1080, 1920)  # Tamaño para la suscripción (vertical)
+IMAGE_SIZE_TEXT = (1080, 1920) #Tamaño de imagen para texto
+IMAGE_SIZE_SUBSCRIPTION = (1080, 1920) #Tamaño de imagen para suscripcion
 SUBSCRIPTION_DURATION = 5
-LOGO_SIZE = (150, 150)
-VIDEO_SIZE = (1080, 1920)  # Tamaño vertical para shorts
-TEXT_MARGIN = 50
+LOGO_SIZE = (150, 150) #reducido el tamaño del logo
+VIDEO_SIZE = (1080, 1920)  # Tamaño del video vertical
+
 # Configuración de voces
 VOCES_DISPONIBLES = {
-    "es-ES-Standard-A": texttospeech.SsmlVoiceGender.FEMALE,
-    "es-ES-Standard-B": texttospeech.SsmlVoiceGender.MALE,
-    "es-ES-Standard-C": texttospeech.SsmlVoiceGender.FEMALE,
-    "es-ES-Standard-D": texttospeech.SsmlVoiceGender.FEMALE,
-    "es-ES-Standard-E": texttospeech.SsmlVoiceGender.FEMALE,
-    "es-ES-Standard-F": texttospeech.SsmlVoiceGender.MALE,
-    "es-ES-Neural2-A": texttospeech.SsmlVoiceGender.FEMALE,
-    "es-ES-Neural2-B": texttospeech.SsmlVoiceGender.MALE,
-    "es-ES-Neural2-C": texttospeech.SsmlVoiceGender.FEMALE,
-    "es-ES-Neural2-D": texttospeech.SsmlVoiceGender.FEMALE,
-    "es-ES-Neural2-E": texttospeech.SsmlVoiceGender.FEMALE,
-    "es-ES-Neural2-F": texttospeech.SsmlVoiceGender.MALE,
-    "es-ES-Polyglot-1": texttospeech.SsmlVoiceGender.MALE,
-    "es-ES-Studio-C": texttospeech.SsmlVoiceGender.FEMALE,
-    "es-ES-Studio-F": texttospeech.SsmlVoiceGender.MALE,
-    "es-ES-Wavenet-B": texttospeech.SsmlVoiceGender.MALE,
-    "es-ES-Wavenet-C": texttospeech.SsmlVoiceGender.FEMALE,
-    "es-ES-Wavenet-D": texttospeech.SsmlVoiceGender.FEMALE,
-    "es-ES-Wavenet-E": texttospeech.SsmlVoiceGender.MALE,
-    "es-ES-Wavenet-F": texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Standard-A': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Standard-B': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Standard-C': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Standard-D': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Standard-E': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Standard-F': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Neural2-A': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Neural2-B': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Neural2-C': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Neural2-D': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Neural2-E': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Neural2-F': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Polyglot-1': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Studio-C': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Studio-F': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Wavenet-B': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Wavenet-C': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Wavenet-D': texttospeech.SsmlVoiceGender.FEMALE,
+    'es-ES-Wavenet-E': texttospeech.SsmlVoiceGender.MALE,
+    'es-ES-Wavenet-F': texttospeech.SsmlVoiceGender.FEMALE,
 }
 
-def create_text_image(
-    text,
-    size=IMAGE_SIZE_TEXT,
-    font_size=DEFAULT_FONT_SIZE,
-    bg_color="black",
-    text_color="white",
-    background_video=None,
-    background_image=None,
-    full_size_background=False,
-    stretch_background=False,
-):
-    if full_size_background:
-        size = VIDEO_SIZE
-    
+
+def create_text_image(text, size=IMAGE_SIZE_TEXT, font_size=DEFAULT_FONT_SIZE,
+                      bg_color="black", text_color="white", background_image=None,
+                      stretch_background=False, background_video=None):
+    """Creates a text image with the specified text and styles."""
     if background_video:
-        return None
-    
-    if background_image:
+        img = Image.new('RGBA', size, (0, 0, 0, 0))  # Fondo completamente transparente
+    elif background_image:
       try:
           img = Image.open(background_image).convert("RGB")
           if stretch_background:
               img = img.resize(size)
           else:
-            img.thumbnail(size)
-            new_img = Image.new('RGB', size, bg_color)
-            new_img.paste(img, ((size[0]-img.width)//2, (size[1]-img.height)//2))
-            img = new_img
+              img.thumbnail(size)
+              new_img = Image.new('RGB', size, bg_color)
+              new_img.paste(img, ((size[0]-img.width)//2, (size[1]-img.height)//2))
+              img = new_img
+            
       except Exception as e:
           logging.error(f"Error al cargar imagen de fondo: {str(e)}, usando fondo {bg_color}.")
           img = Image.new('RGB', size, bg_color)
     else:
         img = Image.new('RGB', size, bg_color)
-
+    
     draw = ImageDraw.Draw(img)
-
     try:
         font = ImageFont.truetype(FONT_PATH, font_size)
     except Exception as e:
         logging.error(f"Error al cargar la fuente, usando la fuente predeterminada: {str(e)}")
         font = ImageFont.load_default()
-
-    line_height = font_size * 1.5
+    
+    # Calculamos la altura de línea en función del tamaño de la fuente.
+    line_height = font_size * 1.2 #ajusto a 1.2 por que el video es mas alto
 
     words = text.split()
     lines = []
@@ -122,13 +99,13 @@ def create_text_image(
 
     for word in words:
         current_line.append(word)
-        test_line = " ".join(current_line)
+        test_line = ' '.join(current_line)
         left, top, right, bottom = draw.textbbox((0, 0), test_line, font=font)
-        if right > size[0] - (TEXT_MARGIN * 2):  # Ancho de la imagen menos dos veces el margen
+        if right > size[0] - 120:  #ajusto el tamaño del rectangulo del texto
             current_line.pop()
-            lines.append(" ".join(current_line))
+            lines.append(' '.join(current_line))
             current_line = [word]
-    lines.append(" ".join(current_line))
+    lines.append(' '.join(current_line))
 
     total_height = len(lines) * line_height
     y = (size[1] - total_height) // 2
@@ -140,13 +117,25 @@ def create_text_image(
         y += line_height
     return np.array(img)
 
-def create_subscription_image(logo_url, size=IMAGE_SIZE_SUBSCRIPTION, font_size=60):
+def create_subscription_image(logo_url, size=IMAGE_SIZE_SUBSCRIPTION, font_size=70, #reducimos tamaño de la fuente
+                             background_image=None, bg_color="black", background_video=None):
     """Creates an image for the subscription message."""
-    img = Image.new("RGB", size, (255, 0, 0))
+    if background_video:
+       img = Image.new('RGB', size, bg_color)
+    elif background_image:
+      try:
+          img = Image.open(background_image).convert("RGB")
+          img = img.resize(size)
+      except Exception as e:
+        logging.error(f"Error al cargar imagen de fondo para la suscripción: {str(e)}, usando fondo negro.")
+        img = Image.new('RGB', size, bg_color)
+    else:
+      img = Image.new('RGB', size, bg_color)
+
     draw = ImageDraw.Draw(img)
     try:
         font = ImageFont.truetype(FONT_PATH, font_size)
-        font2 = ImageFont.truetype(FONT_PATH, font_size // 2)
+        font2 = ImageFont.truetype(FONT_PATH, font_size//2)
     except:
         font = ImageFont.load_default()
         font2 = ImageFont.load_default()
@@ -161,203 +150,166 @@ def create_subscription_image(logo_url, size=IMAGE_SIZE_SUBSCRIPTION, font_size=
     except Exception as e:
         logging.error(f"Error al cargar el logo: {str(e)}")
 
-    text1 = "¡SUSCRÍBETE A LECTOR DE SOMBRAS!"
-    left1, top1, right1, bottom1 = draw.textbbox((0, 0), text1, font=font)
-    x1 = (size[0] - (right1 - left1)) // 2
-    y1 = (size[1] - (bottom1 - top1)) // 2 - (bottom1 - top1) // 2 - 20
-    draw.text((x1, y1), text1, font=font, fill="white")
+    text1_line1 = "¡SUSCRÍBETE A" # Dividimos el texto en dos lineas
+    text1_line2 = "LECTOR DE SOMBRAS!"
+    
+    left1_1, top1_1, right1_1, bottom1_1 = draw.textbbox((0, 0), text1_line1, font=font)
+    left1_2, top1_2, right1_2, bottom1_2 = draw.textbbox((0, 0), text1_line2, font=font)
+    x1 = (size[0] - max(right1_1 - left1_1, right1_2-left1_2)) // 2 # Centramos ambas lineas
+    y1 = (size[1] - (bottom1_1 - top1_1 + bottom1_2 - top1_2)) // 2 - 40 # Ajustamos la posicion
 
+    draw.text((x1, y1), text1_line1, font=font, fill="white")
+    draw.text((x1, y1 + (bottom1_1-top1_1)), text1_line2, font=font, fill="white") # dibuja el texto en la segunda linea
+    
     text2 = "Dale like y activa la campana 🔔"
     left2, top2, right2, bottom2 = draw.textbbox((0, 0), text2, font=font2)
     x2 = (size[0] - (right2 - left2)) // 2
-    y2 = (size[1] - (bottom2 - top2)) // 2 + (bottom1 - top1) // 2 + 20
+    y2 = y1 + (bottom1_1 - top1_1) + (bottom1_2-top1_2) + 40 # Ajustamos la posicion del texto secundario
     draw.text((x2, y2), text2, font=font2, fill="white")
     return np.array(img)
-
-def create_simple_video(
-    texto,
-    nombre_salida,
-    voz,
-    logo_url,
-    font_size,
-    bg_color,
-    text_color,
-    background_video,
-    background_image,
-    stretch_background
-):
+    
+def create_simple_video(texto, nombre_salida, voz, logo_url, font_size, bg_color, text_color,
+                 background_image, stretch_background, background_video):
     archivos_temp = []
     clips_audio = []
     clips_finales = []
+    
     try:
         logging.info("Iniciando proceso de creación de video...")
-        frases = [f.strip() + "." for f in texto.split(".") if f.strip()]
+        frases = [f.strip() + "." for f in texto.split('.') if f.strip()]
         client = texttospeech.TextToSpeechClient()
-
+        
+        tiempo_acumulado = 0
+        
+        # Agrupamos frases en segmentos
         segmentos_texto = []
         segmento_actual = ""
         for frase in frases:
-            if len(segmento_actual) + len(frase) < 400:
-                segmento_actual += " " + frase
-            else:
-                segmentos_texto.append(segmento_actual.strip())
-                segmento_actual = frase
+          if len(segmento_actual) + len(frase) < 300:
+            segmento_actual += " " + frase
+          else:
+            segmentos_texto.append(segmento_actual.strip())
+            segmento_actual = frase
         segmentos_texto.append(segmento_actual.strip())
-
+        
         if background_video:
-             try:
-                  with tempfile.NamedTemporaryFile(
-                        delete=False, suffix=os.path.splitext(background_video.name)[1]
-                    ) as tmp_file:
-                     tmp_file.write(background_video.read())
-                     video_path = tmp_file.name
-                     
-                  bg_clip_original = VideoFileClip(video_path)
-                  bg_clip_resized = bg_clip_original.resize(VIDEO_SIZE)
-                  bg_clip_resized = bg_clip_resized.set_opacity(0.5)
-                  archivos_temp.append(video_path)
-
-             except Exception as e:
-                logging.error(f"Error al cargar o procesar el video de fondo: {e}")
-                bg_clip_resized = None
-        else:
-            bg_clip_resized = None
-
-        # Generar audio para todo el texto
-        full_text = " ".join(segmentos_texto)
-        synthesis_input = texttospeech.SynthesisInput(text=full_text)
-        voice = texttospeech.VoiceSelectionParams(
-            language_code="es-ES",
-            name=voz,
-            ssml_gender=VOCES_DISPONIBLES[voz],
-        )
-        audio_config = texttospeech.AudioConfig(
-            audio_encoding=texttospeech.AudioEncoding.MP3
-        )
-        
-        retry_count = 0
-        max_retries = 3
-
-        while retry_count <= max_retries:
             try:
-                response = client.synthesize_speech(
-                    input=synthesis_input, voice=voice, audio_config=audio_config
-                )
-                break
-            except Exception as e:
-                logging.error(
-                    f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}"
-                )
-                if "429" in str(e):
-                    retry_count += 1
-                    time.sleep(2**retry_count)
-                else:
-                    raise
-        if retry_count > max_retries:
-            raise Exception("Maximos intentos de reintento alcanzado")
+              bg_clip_original = VideoFileClip(background_video)
+              bg_clip_resized = bg_clip_original.resize(VIDEO_SIZE)
+              bg_clip_resized = bg_clip_resized.set_opacity(0.5)
 
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_audio_file:
-            temp_audio_file.write(response.audio_content)
-            archivos_temp.append(temp_audio_file.name)
-            audio_clip = AudioFileClip(temp_audio_file.name)
-            duracion_total_audio = audio_clip.duration
-            
+            except Exception as e:
+              logging.error(f"Error al cargar o procesar el video de fondo: {e}")
+              bg_clip_resized = None
+        else:
+             bg_clip_resized = None
         
-        tiempo_acumulado = 0
         for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
             
-            if bg_clip_resized:
-                # Usar el video de fondo redimensionado
-                bg_clip_segment = bg_clip_resized.loop(duration=duracion_total_audio)
-
-                text_img = create_text_image(
-                     segmento, font_size=font_size, text_color=text_color
-                 )
-                txt_clip = (
-                     ImageClip(text_img)
-                     .set_duration(duracion_total_audio)
-                     .set_position("center")
-                 )
-                video_segment = CompositeVideoClip([bg_clip_segment, txt_clip])
-
-            else:
-                text_img = create_text_image(
-                    segmento,
-                    font_size=font_size,
-                    bg_color=bg_color,
-                    text_color=text_color,
-                    background_image=background_image,
-                    full_size_background=True,
-                    stretch_background = stretch_background
-                )
-                txt_clip = (
-                    ImageClip(text_img)
-                    .set_duration(duracion_total_audio)
-                    .set_position("center")
-                )
-                video_segment = txt_clip
+            synthesis_input = texttospeech.SynthesisInput(text=segmento)
+            voice = texttospeech.VoiceSelectionParams(
+                language_code="es-ES",
+                name=voz,
+                ssml_gender=VOCES_DISPONIBLES[voz]
+            )
+            audio_config = texttospeech.AudioConfig(
+                audio_encoding=texttospeech.AudioEncoding.MP3
+            )
             
-            start_time = tiempo_acumulado
-            end_time = tiempo_acumulado + (duracion_total_audio / len(segmentos_texto))
+            retry_count = 0
+            max_retries = 3
+            
+            while retry_count <= max_retries:
+              try:
+                response = client.synthesize_speech(
+                    input=synthesis_input,
+                    voice=voice,
+                    audio_config=audio_config
+                )
+                break
+              except Exception as e:
+                  logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
+                  if "429" in str(e):
+                    retry_count +=1
+                    time.sleep(2**retry_count)
+                  else:
+                    raise
+            
+            if retry_count > max_retries:
+                raise Exception("Maximos intentos de reintento alcanzado")
+            
+            temp_filename = f"temp_audio_{i}.mp3"
+            archivos_temp.append(temp_filename)
+            with open(temp_filename, "wb") as out:
+                out.write(response.audio_content)
+            
+            audio_clip = AudioFileClip(temp_filename)
+            clips_audio.append(audio_clip)
+            duracion = audio_clip.duration
+            
+            if bg_clip_resized:
+              bg_clip_segment = bg_clip_resized.loop(duration=duracion)
+              
+              # Creamos una capa negra semitransparente
+              black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.5).set_duration(duracion)
 
-            if video_segment:
-                video_segment = video_segment.set_start(start_time).set_end(end_time).set_audio(audio_clip.set_start(start_time))
-                
+              text_img = create_text_image(segmento, font_size=font_size,
+                                    text_color=text_color,
+                                    background_video=background_video
+                                    )
+              txt_clip = (ImageClip(text_img)
+                          .set_duration(duracion)
+                          .set_position('center'))
+             
+              video_segment = CompositeVideoClip([bg_clip_segment, black_clip, txt_clip])
+              video_segment = video_segment.set_audio(audio_clip)
+            else:
+              text_img = create_text_image(segmento, font_size=font_size,
+                                    bg_color=bg_color, text_color=text_color,
+                                    background_image=background_image,
+                                    stretch_background=stretch_background)
+              txt_clip = (ImageClip(text_img)
+                      .set_start(tiempo_acumulado)
+                      .set_duration(duracion)
+                      .set_position('center'))
+              video_segment = txt_clip.set_audio(audio_clip.set_start(tiempo_acumulado))
+            
             clips_finales.append(video_segment)
-            tiempo_acumulado = end_time
-            time.sleep(0.1)
+            
+            tiempo_acumulado += duracion
+            time.sleep(0.2)
+        
+        # Añadir clip de suscripción
+        subscribe_img = create_subscription_image(logo_url, background_image=background_image, bg_color=bg_color, font_size=70, background_video = background_video)
+        duracion_subscribe = SUBSCRIPTION_DURATION
 
-        subscribe_img = create_subscription_image(logo_url)
-        duracion_subscribe = 5
+        subscribe_clip = (ImageClip(subscribe_img)
+                        .set_start(tiempo_acumulado)
+                        .set_duration(duracion_subscribe)
+                        .set_position('center'))
 
-        subscribe_clip = (
-            ImageClip(subscribe_img)
-            .set_start(tiempo_acumulado)
-            .set_duration(duracion_subscribe)
-            .set_position("center")
-        )
         clips_finales.append(subscribe_clip)
 
-        video_final = concatenate_videoclips(clips_finales, method="compose")
-
+        video_final = concatenate_videoclips(clips_finales, method="chain")
+        
         video_final.write_videofile(
             nombre_salida,
             fps=VIDEO_FPS,
             codec=VIDEO_CODEC,
             audio_codec=AUDIO_CODEC,
             preset=VIDEO_PRESET,
-            threads=VIDEO_THREADS,
+            threads=VIDEO_THREADS
         )
-
+        
         video_final.close()
-        audio_clip.close()
-
+        
+        for clip in clips_audio:
+            clip.close()
+        
         for clip in clips_finales:
-            try:
-                clip.close()
-            except:
-                pass
-
-        for temp_file in archivos_temp:
-            try:
-                if os.path.exists(temp_file):
-                   os.close(os.open(temp_file, os.O_RDONLY))
-                   os.remove(temp_file)
-            except:
-                pass
-
-        if bg_clip_resized:
-            bg_clip_original.close()
-        return True, "Video generado exitosamente"
-    except Exception as e:
-        logging.error(f"Error: {str(e)}")
-        for clip in clips_finales:
-            try:
-                clip.close()
-            except:
-                pass
-
+            clip.close()
+            
         for temp_file in archivos_temp:
             try:
                 if os.path.exists(temp_file):
@@ -365,108 +317,108 @@ def create_simple_video(
                     os.remove(temp_file)
             except:
                 pass
+        if bg_clip_resized:
+          bg_clip_original.close()
+        
+        return True, "Video generado exitosamente"
+        
+    except Exception as e:
+        logging.error(f"Error: {str(e)}")
+        for clip in clips_audio:
+            try:
+                clip.close()
+            except:
+                pass
+                
+        for clip in clips_finales:
+            try:
+                clip.close()
+            except:
+                pass
+                
+        for temp_file in archivos_temp:
+            try:
+                if os.path.exists(temp_file):
+                    os.close(os.open(temp_file, os.O_RDONLY))
+                    os.remove(temp_file)
+            except:
+                pass
+        
         return False, str(e)
 
+
 def main():
-    st.title("Creador de Shorts para YouTube")
-
+    st.title("Creador de Videos Automático")
+    
     uploaded_file = st.file_uploader("Carga un archivo de texto", type="txt")
-
+    
+    
     with st.sidebar:
         st.header("Configuración del Video")
-        voz_seleccionada = st.selectbox(
-            "Selecciona la voz", options=list(VOCES_DISPONIBLES.keys())
-        )
-        font_size = st.slider(
-            "Tamaño de la fuente", min_value=10, max_value=100, value=DEFAULT_FONT_SIZE
-        )
+        voz_seleccionada = st.selectbox("Selecciona la voz", options=list(VOCES_DISPONIBLES.keys()))
+        font_size = st.slider("Tamaño de la fuente", min_value=10, max_value=200, value=DEFAULT_FONT_SIZE)
         bg_color = st.color_picker("Color de fondo", value="#000000")
         text_color = st.color_picker("Color de texto", value="#ffffff")
         background_type = st.radio("Tipo de fondo", ["Color sólido", "Imagen", "Video"])
-        stretch_background = st.checkbox("Estirar imagen de fondo", value=False)
 
         background_image = None
         background_video = None
 
         if background_type == "Imagen":
-            background_image = st.file_uploader(
-                "Imagen de fondo", type=["png", "jpg", "jpeg", "webp"]
-            )
+            background_image = st.file_uploader("Imagen de fondo (opcional)", type=["png", "jpg", "jpeg", "webp"])
         elif background_type == "Video":
-            background_video = st.file_uploader(
-                "Video de fondo", type=["mp4", "mov", "avi"]
-            )
+            background_video = st.file_uploader("Video de fondo (opcional)", type=["mp4", "mov", "avi"])
+        stretch_background = st.checkbox("Estirar imagen de fondo", value=False)
 
-    logo_url = "https://yt3.ggpht.com/pBI3iT87_fX91PGHS5gZtbQi53nuRBIvOsuc-Z-hXaE3GxyRQF8-vEIDYOzFz93dsKUEjoHEwQ=s176-c-k-c0x00ffffff-no-rj"  # Logo del canal
 
+    logo_url = "https://yt3.ggpht.com/pBI3iT87_fX91PGHS5gZtbQi53nuRBIvOsuc-Z-hXaE3GxyRQF8-vEIDYOzFz93dsKUEjoHEwQ=s176-c-k-c0x00ffffff-no-rj"
+    
     if uploaded_file:
         texto = uploaded_file.read().decode("utf-8")
         nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
-
+        
         if st.button("Generar Video"):
-            with st.spinner("Generando video..."):
+            with st.spinner('Generando video...'):
                 nombre_salida_completo = f"{nombre_salida}.mp4"
-
+                
+                
                 img_path = None
                 video_path = None
-
-                if background_image:
-                    with tempfile.NamedTemporaryFile(
-                        delete=False, suffix=os.path.splitext(background_image.name)[1]
-                    ) as tmp_file:
+                if background_image and background_type == "Imagen":
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(background_image.name)[1]) as tmp_file:
                         tmp_file.write(background_image.read())
                         img_path = tmp_file.name
-
-                if background_video:
-                    with tempfile.NamedTemporaryFile(
-                        delete=False, suffix=os.path.splitext(background_video.name)[1]
-                    ) as tmp_file:
+                if background_video and background_type == "Video":
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(background_video.name)[1]) as tmp_file:
                         tmp_file.write(background_video.read())
                         video_path = tmp_file.name
 
-                success, message = create_simple_video(
-                    texto,
-                    nombre_salida_completo,
-                    voz_seleccionada,
-                    logo_url,
-                    font_size,
-                    bg_color,
-                    text_color,
-                    video_path,
-                    img_path,
-                    stretch_background
-                )
 
+                success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada, logo_url,
+                                                        font_size, bg_color, text_color, img_path, stretch_background, video_path)
                 if success:
-                    st.success(message)
-                    st.video(nombre_salida_completo)
-                    with open(nombre_salida_completo, "rb") as file:
-                        st.download_button(
-                            label="Descargar video",
-                            data=file,
-                            file_name=nombre_salida_completo,
-                        )
-
-                    st.session_state.video_path = nombre_salida_completo
-
-                    if img_path:
-                        os.remove(img_path)
-                    if video_path:
-                        os.remove(video_path)
+                  st.success(message)
+                  st.video(nombre_salida_completo)
+                  with open(nombre_salida_completo, 'rb') as file:
+                    st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
+                    
+                  st.session_state.video_path = nombre_salida_completo
+                  if img_path:
+                    os.remove(img_path)
+                  if video_path:
+                    os.remove(video_path)
                 else:
-                    st.error(f"Error al generar video: {message}")
-                    if img_path:
-                         os.remove(img_path)
-                    if video_path:
-                        os.remove(video_path)
+                  st.error(f"Error al generar video: {message}")
+                  if img_path:
+                    os.remove(img_path)
+                  if video_path:
+                    os.remove(video_path)
 
         if st.session_state.get("video_path"):
-            st.markdown(
-                '<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>',
-                unsafe_allow_html=True,
-            )
+            st.markdown(f'<a href="https://www.youtube.com/upload" target="_blank">Subir video a YouTube</a>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
+    # Inicializar session state
     if "video_path" not in st.session_state:
         st.session_state.video_path = None
     main()
