@@ -154,13 +154,13 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
         
         # Cargar y procesar video de fondo (siempre)
         try:
-            bg_clip_original = VideoFileClip(background_video)
-            bg_clip_resized = resize_and_center_video(bg_clip_original, VIDEO_SIZE)
-            bg_clip_resized = bg_clip_resized.set_opacity(0.5)
-              
+            if background_video:
+              bg_clip_original = VideoFileClip(background_video)
+              bg_clip_resized = resize_and_center_video(bg_clip_original, VIDEO_SIZE)
+              bg_clip_resized = bg_clip_resized.set_opacity(0.5)
         except Exception as e:
             logging.error(f"Error al cargar o procesar el video de fondo: {e}")
-            raise Exception("Error al cargar el video de fondo")  # Lanzar excepción si falla la carga del video
+            raise Exception(f"Error al cargar el video de fondo: {str(e)}")  # Lanzar excepción si falla la carga del video
 
         # Calcular duración total de los audios
         total_duration = 0
@@ -296,7 +296,8 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
                     os.remove(temp_file)
             except:
                 pass
-        bg_clip_original.close()
+        if 'bg_clip_original' in locals() and bg_clip_original:
+          bg_clip_original.close()
         
         return True, "Video generado exitosamente"
         
@@ -342,39 +343,42 @@ def main():
           background_video = st.file_uploader("Video de fondo (obligatorio)", type=["mp4", "mov", "avi"])
     
     if uploaded_file:
-      if background_video is None:
-        st.error("Por favor, carga un video de fondo.")
-      else:
-        texto = uploaded_file.read().decode("utf-8")
-        nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
-        
-        if st.button("Generar Video"):
-            with st.spinner('Generando video...'):
-                nombre_salida_completo = f"{nombre_salida}.mp4"
-                
-                
-                video_path = None
-                if background_video:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(background_video.name)[1]) as tmp_file:
-                        tmp_file.write(background_video.read())
-                        video_path = tmp_file.name
-
-
-                success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada,
-                                                        font_size, video_path)
-                if success:
-                  st.success(message)
-                  st.video(nombre_salida_completo)
-                  with open(nombre_salida_completo, 'rb') as file:
-                    st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
-                    
-                  st.session_state.video_path = nombre_salida_completo
-                  if video_path:
-                    os.remove(video_path)
-                else:
-                  st.error(f"Error al generar video: {message}")
-                  if video_path:
-                    os.remove(video_path)
+        if background_video is None:
+          st.error("Por favor, carga un video de fondo.")
+        else:
+          texto = uploaded_file.read().decode("utf-8")
+          nombre_salida = st.text_input("Nombre del Video (sin extensión)", "video_generado")
+          
+          if st.button("Generar Video"):
+              with st.spinner('Generando video...'):
+                  nombre_salida_completo = f"{nombre_salida}.mp4"
+                  
+                  
+                  video_path = None
+                  if background_video:
+                      with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(background_video.name)[1]) as tmp_file:
+                          tmp_file.write(background_video.read())
+                          video_path = tmp_file.name
+                  try:
+                      success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada,
+                                                              font_size, video_path)
+                      if success:
+                        st.success(message)
+                        st.video(nombre_salida_completo)
+                        with open(nombre_salida_completo, 'rb') as file:
+                          st.download_button(label="Descargar video",data=file,file_name=nombre_salida_completo)
+                          
+                        st.session_state.video_path = nombre_salida_completo
+                        if video_path:
+                          os.remove(video_path)
+                      else:
+                        st.error(f"Error al generar video: {message}")
+                        if video_path:
+                          os.remove(video_path)
+                  except Exception as e:
+                      st.error(f"Error al generar video: {e}")
+                      if video_path:
+                        os.remove(video_path)
 
 
 if __name__ == "__main__":
