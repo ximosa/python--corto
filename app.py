@@ -89,7 +89,7 @@ def create_text_image(
         return None
 
     # Creamos una imagen con canal alfa (RGBA)
-    img = Image.new("RGBA", size, (0, 0, 0, 0))  # Fondo completamente transparente
+    img = Image.new("RGBA", size, bg_color)  # Fondo completamente transparente
     draw = ImageDraw.Draw(img)
 
     try:
@@ -139,7 +139,7 @@ def create_subscription_image(logo_url, size=IMAGE_SIZE_SUBSCRIPTION, font_size=
         response = requests.get(logo_url)
         response.raise_for_status()
         logo_img = Image.open(BytesIO(response.content)).convert("RGBA")
-        logo_img = logo_img.resize(LOGO_SIZE)  # Quitamos ANTIALIAS
+        logo_img = logo_img.resize(LOGO_SIZE)
         logo_position = (20, 20)
         img.paste(logo_img, logo_position, logo_img)
     except Exception as e:
@@ -172,7 +172,7 @@ def create_simple_video(
     archivos_temp = []
     clips_audio = []
     clips_finales = []
-
+    
     try:
         logging.info("Iniciando proceso de creación de video...")
         frases = [f.strip() + "." for f in texto.split(".") if f.strip()]
@@ -216,21 +216,30 @@ def create_simple_video(
                                   .crop(x1=0, y1=y_center,
                                        x2=VIDEO_SIZE[0],
                                        y2=y_center + VIDEO_SIZE[1]))
-
-                # Calculamos cuántas repeticiones necesitamos
-                for i, segmento in enumerate(segmentos_texto):
-                    audio_clip = clips_audio[i]
-                    duracion = audio_clip.duration
-                    
-                    # Creamos un loop específico para cada segmento
-                    bg_clip_segment = bg_clip_base.loop(duration=duracion)
-                    
-                    # Resto del procesamiento del segmento...
+                
+                
+                
+                bg_clip_loop = bg_clip_base.loop(duration=100)
+                
             except Exception as e:
                 logging.error(f"Error al cargar o procesar el video de fondo: {e}")
-                bg_clip_base = None
+                bg_clip_loop = None
+        elif background_image:
+            try:
+                bg_img = Image.open(background_image).convert("RGBA")
+                bg_img_resized = bg_img.resize(VIDEO_SIZE, resample=ANTIALIAS())
+                bg_clip_base = ImageClip(np.array(bg_img_resized)).set_duration(100)
+                bg_clip_loop = bg_clip_base.loop(duration=100)
+
+
+            except Exception as e:
+                logging.error(f"Error al cargar o procesar la imagen de fondo: {e}")
+                bg_clip_loop = None
         else:
-            bg_clip_base = None        for i, segmento in enumerate(segmentos_texto):
+           bg_clip_loop = None
+
+
+        for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
 
             synthesis_input = texttospeech.SynthesisInput(text=segmento)
@@ -363,33 +372,32 @@ def create_simple_video(
                     os.remove(temp_file)
             except:
                 pass
-
-        if bg_clip_resized:
-            bg_clip_original.close()
-
         return True, "Video generado exitosamente"
 
     except Exception as e:
         logging.error(f"Error: {str(e)}")
+        return False, str(e)
+    finally:
+      
         for clip in clips_audio:
-            try:
-                clip.close()
-            except:
-                pass
-
+          try:
+             clip.close()
+          except:
+            pass
+            
         for clip in clips_finales:
-            try:
-                clip.close()
-            except:
-                pass
-
+          try:
+             clip.close()
+          except:
+            pass
+      
         for temp_file in archivos_temp:
             try:
                 if os.path.exists(temp_file):
                     os.remove(temp_file)
             except:
                 pass
-        return False, str(e)
+
 
 def main():
     st.title("Creador de Videos Automático")
