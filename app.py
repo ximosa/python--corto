@@ -20,15 +20,15 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "google_credentials.json"
 
 # Constantes
 TEMP_DIR = "temp"
-FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"  # Ajusta la ruta si es necesario
-DEFAULT_FONT_SIZE = 50  # Reducimos el tamaño de fuente por defecto
+FONT_PATH = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+DEFAULT_FONT_SIZE = 50
 VIDEO_FPS = 24
 VIDEO_CODEC = 'libx264'
 AUDIO_CODEC = 'aac'
 VIDEO_PRESET = 'ultrafast'
 VIDEO_THREADS = 4
-IMAGE_SIZE_TEXT = (1080, 1920) #Tamaño de imagen para texto
-VIDEO_SIZE = (1080, 1920)  # Tamaño del video vertical
+IMAGE_SIZE_TEXT = (1080, 1920)
+VIDEO_SIZE = (1080, 1920)
 
 # Configuración de voces
 VOCES_DISPONIBLES = {
@@ -54,7 +54,6 @@ VOCES_DISPONIBLES = {
     'es-ES-Wavenet-F': texttospeech.SsmlVoiceGender.FEMALE,
 }
 
-
 def create_text_image(text, size=IMAGE_SIZE_TEXT, font_size=DEFAULT_FONT_SIZE,
                       text_color="white", background_video=None):
     """Creates a text image with the specified text and styles."""
@@ -71,7 +70,7 @@ def create_text_image(text, size=IMAGE_SIZE_TEXT, font_size=DEFAULT_FONT_SIZE,
         font = ImageFont.load_default()
     
     # Calculamos la altura de línea en función del tamaño de la fuente.
-    line_height = font_size * 1.2 #ajusto a 1.2 por que el video es mas alto
+    line_height = font_size * 1.2
 
     words = text.split()
     lines = []
@@ -81,7 +80,7 @@ def create_text_image(text, size=IMAGE_SIZE_TEXT, font_size=DEFAULT_FONT_SIZE,
         current_line.append(word)
         test_line = ' '.join(current_line)
         left, top, right, bottom = draw.textbbox((0, 0), test_line, font=font)
-        if right > size[0] - 120:  #ajusto el tamaño del rectangulo del texto
+        if right > size[0] - 120:
             current_line.pop()
             lines.append(' '.join(current_line))
             current_line = [word]
@@ -96,6 +95,36 @@ def create_text_image(text, size=IMAGE_SIZE_TEXT, font_size=DEFAULT_FONT_SIZE,
         draw.text((x, y), line, font=font, fill=text_color)
         y += line_height
     return np.array(img)
+
+def resize_and_center_video(video_clip, target_size):
+    """Resizes and centers a video while maintaining its aspect ratio."""
+    
+    video_ratio = video_clip.size[0] / video_clip.size[1]
+    target_ratio = target_size[0] / target_size[1]
+
+    if video_ratio > target_ratio:
+        # Video es más ancho, ajustar altura
+        new_height = target_size[1]
+        new_width = int(new_height * video_ratio)
+        
+    else:
+        # Video es más alto, ajustar ancho
+        new_width = target_size[0]
+        new_height = int(new_width / video_ratio)
+
+    resized_clip = video_clip.resize((new_width, new_height))
+
+    # Centrar el video
+    x_offset = (target_size[0] - new_width) // 2
+    y_offset = (target_size[1] - new_height) // 2
+    
+    # Creamos un clip negro de fondo del tamaño del video
+    background_clip = ColorClip(size=target_size, color=(0,0,0)).set_duration(resized_clip.duration)
+
+    # Pegamos el video redimensionado en el centro
+    final_clip = CompositeVideoClip([background_clip,resized_clip.set_position((x_offset, y_offset))])
+   
+    return final_clip
 
     
 def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
@@ -123,17 +152,65 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
             segmento_actual = frase
         segmentos_texto.append(segmento_actual.strip())
         
+        # Cargar y procesar video de fondo (si existe) fuera del bucle
         if background_video:
             try:
               bg_clip_original = VideoFileClip(background_video)
-              bg_clip_resized = bg_clip_original.resize(VIDEO_SIZE)
+              bg_clip_resized = resize_and_center_video(bg_clip_original, VIDEO_SIZE)
               bg_clip_resized = bg_clip_resized.set_opacity(0.5)
+              
+              # Calcular la duración total de todos los audios
+              total_duration = 0
+              for i, segmento in enumerate(segmentos_texto):
+                synthesis_input = texttospeech.SynthesisInput(text=segmento)
+                voice = texttospeech.VoiceSelectionParams(
+                    language_code="es-ES",
+                    name=voz,
+                    ssml_gender=VOCES_DISPONIBLES[voz]
+                )
+                audio_config = texttospeech.AudioConfig(
+                    audio_encoding=texttospeech.AudioEncoding.MP3
+                )
+                
+                retry_count = 0
+                max_retries = 3
+                
+                while retry_count <= max_retries:
+                    try:
+                        response = client.synthesize_speech(
+                            input=synthesis_input,
+                            voice=voice,
+                            audio_config=audio_config
+                        )
+                        break
+                    except Exception as e:
+                        logging.error(f"Error al solicitar audio (intento {retry_count + 1}): {str(e)}")
+                        if "429" in str(e):
+                          retry_count +=1
+                          time.sleep(2**retry_count)
+                        else:
+                          raise
+                
+                if retry_count > max_retries:
+                    raise Exception("Maximos intentos de reintento alcanzado")
+                
+                temp_filename = f"temp_audio_{i}.mp3"
+                archivos_temp.append(temp_filename)
+                with open(temp_filename, "wb") as out:
+                    out.write(response.audio_content)
+                
+                audio_clip = AudioFileClip(temp_filename)
+                total_duration += audio_clip.duration
+                audio_clip.close()
 
+              bg_clip_looped = bg_clip_resized.loop(duration=total_duration)
+            
             except Exception as e:
               logging.error(f"Error al cargar o procesar el video de fondo: {e}")
-              bg_clip_resized = None
+              bg_clip_looped = None
+
         else:
-             bg_clip_resized = None
+             bg_clip_looped = None
         
         for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
@@ -179,9 +256,7 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
             clips_audio.append(audio_clip)
             duracion = audio_clip.duration
             
-            if bg_clip_resized:
-              bg_clip_segment = bg_clip_resized.loop(duration=duracion)
-              
+            if bg_clip_looped:
               # Creamos una capa negra semitransparente
               black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.5).set_duration(duracion)
 
@@ -193,8 +268,24 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
                           .set_duration(duracion)
                           .set_position('center'))
              
-              video_segment = CompositeVideoClip([bg_clip_segment, black_clip, txt_clip])
+              video_segment = CompositeVideoClip([bg_clip_looped.subclip(tiempo_acumulado, tiempo_acumulado + duracion), black_clip, txt_clip])
               video_segment = video_segment.set_audio(audio_clip)
+            
+            else:
+                # Si no hay video de fondo, creamos un clip negro como antes
+              black_clip = ColorClip(size=VIDEO_SIZE, color=(0, 0, 0)).set_opacity(0.5).set_duration(duracion)
+
+              text_img = create_text_image(segmento, font_size=font_size,
+                                    text_color=text_color,
+                                    background_video=background_video
+                                    )
+              txt_clip = (ImageClip(text_img)
+                          .set_duration(duracion)
+                          .set_position('center'))
+              
+              video_segment = CompositeVideoClip([black_clip, txt_clip])
+              video_segment = video_segment.set_audio(audio_clip)
+
             
             clips_finales.append(video_segment)
             
@@ -227,7 +318,7 @@ def create_simple_video(texto, nombre_salida, voz, font_size, background_video):
                     os.remove(temp_file)
             except:
                 pass
-        if bg_clip_resized:
+        if 'bg_clip_original' in locals() and bg_clip_original:
           bg_clip_original.close()
         
         return True, "Video generado exitosamente"
