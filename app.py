@@ -194,7 +194,7 @@ def create_simple_video(
             try:
                 bg_clip_original = VideoFileClip(background_video)
                 
-                # Primero ajustamos el tamaño al formato vertical de Shorts
+                # Ajustamos el tamaño al formato vertical de Shorts
                 aspect_ratio = VIDEO_SIZE[0] / VIDEO_SIZE[1]
                 original_aspect = bg_clip_original.size[0] / bg_clip_original.size[1]
                 
@@ -202,34 +202,35 @@ def create_simple_video(
                     new_height = VIDEO_SIZE[1]
                     new_width = int(new_height * original_aspect)
                     x_center = (new_width - VIDEO_SIZE[0]) // 2
-                    bg_clip_resized = (bg_clip_original
-                                     .resize(height=new_height)
-                                     .crop(x1=x_center, y1=0, 
-                                          x2=x_center + VIDEO_SIZE[0], 
-                                          y2=VIDEO_SIZE[1]))
+                    bg_clip_base = (bg_clip_original
+                                  .resize(height=new_height)
+                                  .crop(x1=x_center, y1=0, 
+                                       x2=x_center + VIDEO_SIZE[0], 
+                                       y2=VIDEO_SIZE[1]))
                 else:
                     new_width = VIDEO_SIZE[0]
                     new_height = int(new_width / original_aspect)
                     y_center = (new_height - VIDEO_SIZE[1]) // 2
-                    bg_clip_resized = (bg_clip_original
-                                     .resize(width=new_width)
-                                     .crop(x1=0, y1=y_center,
-                                          x2=VIDEO_SIZE[0],
-                                          y2=y_center + VIDEO_SIZE[1]))
+                    bg_clip_base = (bg_clip_original
+                                  .resize(width=new_width)
+                                  .crop(x1=0, y1=y_center,
+                                       x2=VIDEO_SIZE[0],
+                                       y2=y_center + VIDEO_SIZE[1]))
 
-                # Calculamos la duración total necesaria
-                duracion_total = tiempo_acumulado + SUBSCRIPTION_DURATION
-                
-                # Creamos un loop infinito del video hasta cubrir la duración total
-                bg_clip_loop = bg_clip_resized.loop(duration=duracion_total)
-                
-                # Ahora bg_clip_loop tiene la duración correcta para todo el contenido
+                # Calculamos cuántas repeticiones necesitamos
+                for i, segmento in enumerate(segmentos_texto):
+                    audio_clip = clips_audio[i]
+                    duracion = audio_clip.duration
+                    
+                    # Creamos un loop específico para cada segmento
+                    bg_clip_segment = bg_clip_base.loop(duration=duracion)
+                    
+                    # Resto del procesamiento del segmento...
             except Exception as e:
                 logging.error(f"Error al cargar o procesar el video de fondo: {e}")
-                bg_clip_loop = None
+                bg_clip_base = None
         else:
-            bg_clip_loop = None
-        for i, segmento in enumerate(segmentos_texto):
+            bg_clip_base = None        for i, segmento in enumerate(segmentos_texto):
             logging.info(f"Procesando segmento {i+1} de {len(segmentos_texto)}")
 
             synthesis_input = texttospeech.SynthesisInput(text=segmento)
