@@ -357,6 +357,11 @@ def main():
                     with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(background_video.name)[1]) as tmp_file:
                         tmp_file.write(background_video.read())
                         video_path = tmp_file.name
+                        # Mostramos el video original antes de procesarlo
+                        st.video(video_path)
+                        if os.path.exists(video_path):
+                            st.write("Video cargado correctamente")
+                            st.write(f"Tamaño del archivo: {os.path.getsize(video_path)} bytes")
 
 
                 success, message = create_simple_video(texto, nombre_salida_completo, voz_seleccionada,
