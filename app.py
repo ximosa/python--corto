@@ -164,17 +164,29 @@ def create_subscription_image(logo_url, size=IMAGE_SIZE_SUBSCRIPTION, font_size=
     except Exception as e:
         logging.error(f"Error al cargar el logo: {str(e)}")
 
+    # Ajustar tamaño del texto principal
     text1 = "¡SUSCRÍBETE A LECTOR DE SOMBRAS!"
+    max_width = size[0] - 40
+    while font.getsize(text1)[0] > max_width:
+        font_size -= 1
+        font = ImageFont.truetype(FONT_PATH, font_size)
+
     left1, top1, right1, bottom1 = draw.textbbox((0, 0), text1, font=font)
     x1 = (size[0] - (right1 - left1)) // 2
     y1 = (size[1] - (bottom1 - top1)) // 2 - (bottom1 - top1) // 2 - 20
     draw.text((x1, y1), text1, font=font, fill="white")
 
+    # Ajustar tamaño del texto secundario
     text2 = "Dale like y activa la campana 🔔"
+    while font2.getsize(text2)[0] > max_width:
+        font2_size -= 1
+        font2 = ImageFont.truetype(FONT_PATH, font2_size)
+
     left2, top2, right2, bottom2 = draw.textbbox((0, 0), text2, font=font2)
     x2 = (size[0] - (right2 - left2)) // 2
     y2 = (size[1] - (bottom2 - top2)) // 2 + (bottom1 - top1) // 2 + 20
     draw.text((x2, y2), text2, font=font2, fill="white")
+
     return np.array(img)
 import threading
 
