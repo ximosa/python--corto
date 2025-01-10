@@ -116,6 +116,25 @@ def create_text_image(
     lines.append(" ".join(current_line))
 
     total_height = len(lines) * line_height
+    if total_height > size[1]:
+        # Reducing font size if text height exceeds image height
+        font_size = int(font_size * (size[1] / total_height))
+        font = ImageFont.truetype(FONT_PATH, font_size)
+        line_height = font_size * 1.5
+        lines = []
+        current_line = []
+
+        for word in words:
+            current_line.append(word)
+            test_line = " ".join(current_line)
+            left, top, right, bottom = draw.textbbox((0, 0), test_line, font=font)
+            if right > size[0] - 60:
+                current_line.pop()
+                lines.append(" ".join(current_line))
+                current_line = [word]
+        lines.append(" ".join(current_line))
+        total_height = len(lines) * line_height
+
     y = (size[1] - total_height) // 2
 
     for line in lines:
