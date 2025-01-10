@@ -353,12 +353,12 @@ def create_simple_video(
             except:
                 pass
 
-        for temp_file in archivos_temp:
-            try:
-                if os.path.exists(temp_file):
-                os.remove(temp_file)
-            except:
-                pass
+for temp_file in archivos_temp:
+    try:
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+    except:
+        pass
 
         return False, str(e)
 
