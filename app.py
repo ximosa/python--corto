@@ -18,7 +18,7 @@ import tempfile
 import requests
 from io import BytesIO
 
-# Configuración versión de Pillow
+# Configuración versión de Pillow2
 import PIL.Image
 
 def ANTIALIAS():
