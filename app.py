@@ -167,7 +167,7 @@ def create_subscription_image(logo_url, size=IMAGE_SIZE_SUBSCRIPTION, font_size=
     # Ajustar tamaño del texto principal
     text1 = "¡SUSCRÍBETE A LECTOR DE SOMBRAS!"
     max_width = size[0] - 40
-    while font.getsize(text1)[0] > max_width:
+    while draw.textbbox((0, 0), text1, font=font)[2] > max_width:
         font_size -= 1
         font = ImageFont.truetype(FONT_PATH, font_size)
 
@@ -178,7 +178,7 @@ def create_subscription_image(logo_url, size=IMAGE_SIZE_SUBSCRIPTION, font_size=
 
     # Ajustar tamaño del texto secundario
     text2 = "Dale like y activa la campana 🔔"
-    while font2.getsize(text2)[0] > max_width:
+    while draw.textbbox((0, 0), text2, font=font2)[2] > max_width:
         font2_size -= 1
         font2 = ImageFont.truetype(FONT_PATH, font2_size)
 
